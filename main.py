@@ -181,20 +181,28 @@ class Cpu:
         a: int = opcode & int("0xF000", base=0)
         b: int = opcode & int("0x0FFF", base=0)
 
-        match a:
-            case 0:
-                if b == int("0x00E0", base=0):
-                    os.system("cls" if os.name == "nt" else "clear")
-                    return_value = RC_DECODE_PASS
-                elif b == int("0x00EE", base=0):
-                    return_value = RC_DECODE_PASS
-                else:
-                    return_value = RC_DECODE_FAIL
-            case _:
+        # Implement the PC incementation somewhere
+        if a == int("0x000", base=0):
+            if b == int("0x00E0", base=0):
+                self.clear_screen()
+                return_value = RC_DECODE_PASS
+            elif b == int("0x00EE", base=0):
+                self.soubroutine_return()
+                return_value = RC_DECODE_PASS
+            else:
                 return_value = RC_DECODE_FAIL
+        else:
+            return_value = RC_DECODE_FAIL
 
         return return_value
 
+    @staticmethod
+    def clear_screen() -> None:
+        os.system("cls" if os.name == "nt" else "clear")
+    
+    @staticmethod
+    def soubroutine_return() -> None:
+        pass
 
 if __name__ == "__main__":
     c = Cpu()
