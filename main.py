@@ -2,6 +2,7 @@
 
 from typing import Iterable, Any
 import os
+import re
 
 UINT16_MAX = int("0xFFFF", 0)
 UINT8_MAX = int("0xFF", 0)
@@ -30,6 +31,7 @@ class Registers(GeneralMemory):
 
     def __init__(self) -> None:
         self.data_size = UINT8_MAX
+        # Maybe the registers should be reworked ot dict[int, int]
         self.registers: dict[str, int] = {
             "V0": 0, "V1": 0, "V2": 0, "V3": 0, 
             "V4": 0, "V5": 0, "V6": 0, "V7": 0, 
@@ -182,17 +184,115 @@ class Cpu:
         b: int = opcode & int("0x0FFF", base=0)
 
         # Implement the PC incementation somewhere
-        if a == int("0x000", base=0):
-            if b == int("0x00E0", base=0):
+
+        match opcode:
+            case _ if re.fullmatch(r"00E0", f"{opcode:0>4X}"):
                 self.clear_screen()
                 return_value = RC_DECODE_PASS
-            elif b == int("0x00EE", base=0):
+            case _ if re.fullmatch(r"00EE", f"{opcode:0>4X}"):
                 self.soubroutine_return()
                 return_value = RC_DECODE_PASS
-            else:
+            case _ if re.fullmatch(r"1...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"2...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"3...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"4...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"5..0", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"6...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"7...", f"{opcode:0>4X}"):
+                self.constant_add(opcode)                
+                return_value = RC_DECODE_PASS
+            case _ if re.fullmatch(r"8..0", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"8..1", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"8..2", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"8..3", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"8..4", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"8..5", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"8..6", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"8..7", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"8..E", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"9..0", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"A...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"B...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"C...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"D...", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"E.9E", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"E.A1", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.07", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.0A", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.15", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.18", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.29", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.33", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.55", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _ if re.fullmatch(r"F.65", f"{opcode:0>4X}"):
+                return_value = RC_DECODE_PASS
+                pass
+            case _:
                 return_value = RC_DECODE_FAIL
-        else:
-            return_value = RC_DECODE_FAIL
 
         return return_value
 
@@ -203,6 +303,15 @@ class Cpu:
     @staticmethod
     def soubroutine_return() -> None:
         pass
+
+    def constant_add(self, opcode: int) -> None:
+        reg: int = opcode & int("0x0F00", base=0)
+        val: int = opcode & int("0x00FF", base=0)
+
+        curr_val: int = self.registers.read_register(f"V{reg:X}")
+        # Modulo because overflow
+        new_val: int = (curr_val + val) % (self.registers.data_size + 1)
+        self.registers.write_register(f"V{reg:X}", new_val)
 
 if __name__ == "__main__":
     c = Cpu()
