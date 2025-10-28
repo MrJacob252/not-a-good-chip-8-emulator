@@ -14,6 +14,7 @@ UINT8_MAX = int("0xFF", 0)
 
 MEMORY_SIZE = 4 * 1024
 NUMBER_OF_REGISTERS = 16
+FONT_START_ADDRESS = int("0x50", base=0)
 
 # Return codes
 RC_DECODE_PASS = 0
@@ -124,6 +125,7 @@ class Cpu:
     timer_size: int = UINT8_MAX
 
     def __init__(self) -> None:
+        self.font_address: int = FONT_START_ADDRESS
         self.pc: int = 0
         self.__delay: int = 0
         self.__sound: int = 0
@@ -344,18 +346,17 @@ class Cpu:
             case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
                 self.mem_add_to_i(opcode=opcode)
                 return_value = RC_DECODE_PASS
-
-            case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
-                return_value = RC_DECODE_PASS
-                pass
-
+            
+            # 0xFX29
             case _ if re.fullmatch(r"F.29", f"{opcode:0>4X}"):
+                self.mem_sprite_address(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
 
+            # 0xFX33
             case _ if re.fullmatch(r"F.33", f"{opcode:0>4X}"):
+                self.binary_coded_decimal(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             # 0xFX55
             case _ if re.fullmatch(r"F.55", f"{opcode:0>4X}"):
@@ -580,10 +581,29 @@ class Cpu:
         new_val = self.registers.read_register(reg) + self.I.read_register(0)
         self.I.write_register(reg, new_val)
 
+    # 0xFX29
+    def mem_sprite_address(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+
+        new_i: int = self.font_address + self.registers.read_register(reg)
+        self.I.write_register(0, new_i)
+
+    # 0xFX33 
+    def binary_coded_decimal(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        val: int = self.registers.read_register(reg)
+
+        # This will be hardcoded for 8-bit registers only 
+        # Rework may come later
+        digit_list: list[int] = [int(x) for x in f"{val:0>3}"]
+        init_address: int = self.I.read_register(0)
+        for i, digit in enumerate(digit_list):
+            self.memory.write_byte(init_address + i, digit)
+
     # 0xFX55
     def mem_reg_dump(self, opcode: int) -> None:
         reg: int = (opcode & int("0x0F00", base=0)) >> 8
-        init_address = self.I.read_register(0)
+        init_address: int = self.I.read_register(0)
         
         # Writing out of bounds is guarded by the .write_register() and .read_register() methods
         for i in range(0, reg + 1):
