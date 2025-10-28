@@ -1,5 +1,10 @@
 # https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#specifications
 
+# TODO Main loop
+# TODO Fetch instructions
+# TODO Font
+# TODO Capture input
+
 from typing import Iterable, Any
 import os, re
 from random import randint
