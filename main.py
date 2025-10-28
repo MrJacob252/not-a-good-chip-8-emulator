@@ -58,7 +58,7 @@ class Memory(GeneralMemory):
 
     def __init__(self, memory_size: int, data_max: int) -> None:
         self.data_max: int = data_max
-        self.memory: dict[int, int] = {key: 0 for key in range(memory_size)}
+        self.memory: dict[int, int] = {key: 0 for key in range(memory_size // int(self.data_max).bit_length())}
     
     def read_byte(self, address: int) -> int:
         self.validate(self.memory, address)
@@ -77,7 +77,7 @@ class Memory(GeneralMemory):
     def __str__(self) -> str:
         string: list[str] = []
         for i, (key, value) in enumerate(self.memory.items()):
-            string.append(f"{key:0>3x}: ") if (i % 16 == 0) else string.append("")
+            string.append(f"{key:0>3X}: ") if (i % 16 == 0) else string.append("")
             string.append(f"{value:0>{int(self.data_max).bit_length()//4}x}")
             string.append("\n") if (i % 16 == 15) else string.append(" ")
 
@@ -124,7 +124,7 @@ class Cpu:
         self.__sound: int = 0
         self.registers: Registers = Registers(number_of_regs=NUMBER_OF_REGISTERS, data_max=UINT8_MAX)
         self.I: Registers = Registers(number_of_regs=1, data_max=UINT16_MAX, register_char="I")
-        self.memory: Memory = Memory(memory_size=MEMORY_SIZE, data_max=UINT16_MAX)
+        self.memory: Memory = Memory(memory_size=MEMORY_SIZE, data_max=UINT8_MAX)
         self.stack: Stack = Stack(data_max=UINT16_MAX) # to assign and get values self.stack.stack must be called
 
     @classmethod
@@ -335,9 +335,10 @@ class Cpu:
                 self.timer_set_sound(opcode=opcode)
                 return_value = RC_DECODE_PASS
 
+            # 0xFX1E
             case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
+                self.mem_add_to_i(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
@@ -351,13 +352,15 @@ class Cpu:
                 return_value = RC_DECODE_PASS
                 pass
 
+            # 0xFX55
             case _ if re.fullmatch(r"F.55", f"{opcode:0>4X}"):
+                self.mem_reg_dump(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
+            # 0xFX65
             case _ if re.fullmatch(r"F.65", f"{opcode:0>4X}"):
+                self.mem_reg_load(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             case _:
                 return_value = RC_DECODE_FAIL
@@ -565,7 +568,33 @@ class Cpu:
     def timer_set_sound(self, opcode: int) -> None:
         reg: int = (opcode & int("0x0F00", base=0)) >> 8
         self.sound = self.registers.read_register(reg)
+    
+    # 0xFX1E
+    def mem_add_to_i(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        new_val = self.registers.read_register(reg) + self.I.read_register(0)
+        self.I.write_register(reg, new_val)
 
+    # 0xFX55
+    def mem_reg_dump(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        init_address = self.I.read_register(0)
+        
+        # Writing out of bounds is guarded by the .write_register() and .read_register() methods
+        for i in range(0, reg + 1):
+            val_to_save: int = self.registers.read_register(i)
+            self.memory.write_byte(init_address + i, val_to_save)
+    
+    # 0xFX65
+    def mem_reg_load(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        init_address = self.I.read_register(0)
+        
+        # Writing out of bounds is guarded by the .write_register() and .read_register() methods
+        for i in range(0, reg + 1):
+            val_to_load: int = self.memory.read_byte(init_address + i)
+            self.registers.write_register(i, val_to_load)
+    
         
         
 
@@ -573,7 +602,15 @@ if __name__ == "__main__":
     c = Cpu()
     print()
     
-    def debug_decode_regs(op_string: str):
+    def debug_clear_regs(m: int) -> None:
+        for i in range(0, m + 1):
+            c.decode_instruction(int(f"0x6{i:X}00", base=0))
+    
+    def debug_fill_regs(m: int) -> None:
+        for i in range(0, m + 1):
+            c.decode_instruction(int(f"0x6{i:X}{(i+1):0>2X}", base=0))    
+    
+    def debug_decode_regs(op_string: str) -> None:
         opcode = int(op_string, base=0)
         inc, ret_code = c.decode_instruction(opcode)
         color = 32 if (ret_code == 0) else 31
