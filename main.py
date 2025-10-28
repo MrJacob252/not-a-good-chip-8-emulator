@@ -8,6 +8,7 @@ UINT16_MAX = int("0xFFFF", 0)
 UINT8_MAX = int("0xFF", 0)
 
 MEMORY_SIZE = 4 * 1024
+NUMBER_OF_REGISTERS = 16
 
 # Return codes
 RC_DECODE_PASS = 0
@@ -20,7 +21,7 @@ class GeneralMemory:
 
     def validate(self, memory: Iterable | None = None, address: Any = None, value: int | None = None) -> None:
         '''
-        Ghetto vaidation of if the values are the correct size and if the addresses are correct
+        Sketchy validation of if the values are the correct size and if the addresses are correct
         '''
         if memory is not None and address is not None and address not in memory:
             raise IOError("Given address out of bounds")
@@ -32,18 +33,13 @@ class Registers(GeneralMemory):
     def __init__(self) -> None:
         self.data_size = UINT8_MAX
         # Maybe the registers should be reworked ot dict[int, int]
-        self.registers: dict[str, int] = {
-            "V0": 0, "V1": 0, "V2": 0, "V3": 0, 
-            "V4": 0, "V5": 0, "V6": 0, "V7": 0, 
-            "V8": 0, "V9": 0, "VA": 0, "VB": 0, 
-            "VC": 0, "VD": 0, "VE": 0, "VF": 0,
-        }
+        self.registers: dict[int, int] = {key: 0 for key in range(NUMBER_OF_REGISTERS)}
 
-    def write_register(self, register: str, value: int) -> None:        
+    def write_register(self, register: int, value: int) -> None:        
         self.validate(self.registers, register, value)
         self.registers[register] = value
 
-    def read_register(self, register: str) -> int:
+    def read_register(self, register: int) -> int:
         self.validate(self.registers, register)
         return self.registers[register]
     
@@ -51,7 +47,7 @@ class Registers(GeneralMemory):
         string: list[str] = []
         for i, (key, value) in enumerate(self.registers.items()):
             # Dynamically calculate the padding with 0 for and convert the values to hex
-            string.append(f"{key}: {value:0>{int(self.data_size).bit_length()//4}x}")
+            string.append(f"V{key:X}: {value:0>{int(self.data_size).bit_length()//4}x}")
             string.append("\n") if (i % 4 == 3) else string.append(" | ")
 
         return "".join(string)    
@@ -190,7 +186,7 @@ class Cpu:
                 self.clear_screen()
                 return_value = RC_DECODE_PASS
             case _ if re.fullmatch(r"00EE", f"{opcode:0>4X}"):
-                self.soubroutine_return()
+                self.subroutine_return()
                 return_value = RC_DECODE_PASS
             case _ if re.fullmatch(r"1...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
@@ -209,9 +205,10 @@ class Cpu:
                 pass
             case _ if re.fullmatch(r"6...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
+                self.constant_set(opcode=opcode)
                 pass
             case _ if re.fullmatch(r"7...", f"{opcode:0>4X}"):
-                self.constant_add(opcode)                
+                self.constant_add(opcode=opcode)                
                 return_value = RC_DECODE_PASS
             case _ if re.fullmatch(r"8..0", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
@@ -301,17 +298,23 @@ class Cpu:
         os.system("cls" if os.name == "nt" else "clear")
     
     @staticmethod
-    def soubroutine_return() -> None:
+    def subroutine_return() -> None:
         pass
+
+    def constant_set(self, opcode: int) -> None:
+        reg: int = opcode & int("0x0F00", base=0)
+        val: int = opcode & int("0x00FF", base=0)
+        
+        self.registers.write_register(reg, val)
 
     def constant_add(self, opcode: int) -> None:
         reg: int = opcode & int("0x0F00", base=0)
         val: int = opcode & int("0x00FF", base=0)
 
-        curr_val: int = self.registers.read_register(f"V{reg:X}")
+        curr_val: int = self.registers.read_register(reg)
         # Modulo because overflow
         new_val: int = (curr_val + val) % (self.registers.data_size + 1)
-        self.registers.write_register(f"V{reg:X}", new_val)
+        self.registers.write_register(reg, new_val)
 
 if __name__ == "__main__":
     c = Cpu()
