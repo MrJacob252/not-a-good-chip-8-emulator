@@ -30,10 +30,10 @@ class GeneralMemory:
 
 class Registers(GeneralMemory):
 
-    def __init__(self) -> None:
-        self.data_max = UINT8_MAX
+    def __init__(self, number_of_regs, data_max) -> None:
+        self.data_max = data_max
         # Maybe the registers should be reworked ot dict[int, int]
-        self.registers: dict[int, int] = {key: 0 for key in range(NUMBER_OF_REGISTERS)}
+        self.registers: dict[int, int] = {key: 0 for key in range(number_of_regs)}
 
     def write_register(self, register: int, value: int) -> None:        
         self.validate(self.registers, register, value)
@@ -54,9 +54,9 @@ class Registers(GeneralMemory):
     
 class Memory(GeneralMemory):
 
-    def __init__(self) -> None:
-        self.data_max = UINT8_MAX
-        self.memory: dict[int, int] = {key: 0 for key in range(MEMORY_SIZE)}
+    def __init__(self, memory_size, data_max) -> None:
+        self.data_max = data_max
+        self.memory: dict[int, int] = {key: 0 for key in range(memory_size)}
     
     def read_byte(self, address: int) -> int:
         self.validate(self.memory, address)
@@ -83,8 +83,8 @@ class Memory(GeneralMemory):
 
 class Stack(GeneralMemory):
 
-    def __init__(self) -> None:
-        self.data_max = UINT16_MAX
+    def __init__(self, data_max) -> None:
+        self.data_max = data_max
         self.__stack: list[int] = []
 
     @property
@@ -120,9 +120,10 @@ class Cpu:
         self.pc: int = 0
         self.__delay: int = 0
         self.__sound: int = 0
-        self.registers: Registers = Registers()
-        self.memory: Memory = Memory()
-        self.stack: Stack = Stack() # to assign and get values self.stack.stack must be called
+        self.registers: Registers = Registers(number_of_regs=NUMBER_OF_REGISTERS, data_max=UINT8_MAX)
+        self.I: Registers = Registers(number_of_regs=1, data_max=UINT16_MAX)
+        self.memory: Memory = Memory(memory_size=MEMORY_SIZE, data_max=UINT16_MAX)
+        self.stack: Stack = Stack(data_max=UINT16_MAX) # to assign and get values self.stack.stack must be called
 
     @classmethod
     def validate_timer(cls, value):
@@ -180,6 +181,7 @@ class Cpu:
         b: int = opcode & int("0x0FFF", base=0)
 
         # Implement the PC incementation somewhere
+        should_increment = True
 
         match opcode:
             # 0x00E0
@@ -191,32 +193,39 @@ class Cpu:
             case _ if re.fullmatch(r"00EE", f"{opcode:0>4X}"):
                 self.subroutine_return()
                 return_value = RC_DECODE_PASS
+                should_increment = False
 
+            # 0x1NNN
             case _ if re.fullmatch(r"1...", f"{opcode:0>4X}"):
+                self.flow_jump(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
-
+                should_increment = False
+            
+            # 0x2NNN
             case _ if re.fullmatch(r"2...", f"{opcode:0>4X}"):
+                self.subroutine_call(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
+                should_increment = False
 
+            # 0x3XNN
             case _ if re.fullmatch(r"3...", f"{opcode:0>4X}"):
+                self.cond_eq(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
+            # 0x4XNN
             case _ if re.fullmatch(r"4...", f"{opcode:0>4X}"):
+                self.cond_neq(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
+            # 0x5XY0
             case _ if re.fullmatch(r"5..0", f"{opcode:0>4X}"):
+                self.cond_x_eq_y(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
             
             # 0x6XNN
             case _ if re.fullmatch(r"6...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 self.constant_set(opcode=opcode)
-                pass
             
             # 0x7XNN
             case _ if re.fullmatch(r"7...", f"{opcode:0>4X}"):
@@ -227,55 +236,46 @@ class Cpu:
             case _ if re.fullmatch(r"8..0", f"{opcode:0>4X}"):
                 self.assign_from_register(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             # 0x8XY1
             case _ if re.fullmatch(r"8..1", f"{opcode:0>4X}"):
                 self.bit_or(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             # 0x8XY2
             case _ if re.fullmatch(r"8..2", f"{opcode:0>4X}"):
                 self.bit_and(opcode=opcode)    
                 return_value = RC_DECODE_PASS
-                pass
             
             # 0x8XY3
             case _ if re.fullmatch(r"8..3", f"{opcode:0>4X}"):
                 self.bit_xor(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
             
             # 0x8XY4
             case _ if re.fullmatch(r"8..4", f"{opcode:0>4X}"):
                 self.math_add(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             # 0x8XY5
             case _ if re.fullmatch(r"8..5", f"{opcode:0>4X}"):
                 self.math_sub_x_y(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
             
             # 0x8XY6
             case _ if re.fullmatch(r"8..6", f"{opcode:0>4X}"):
                 self.bit_shift_r(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             # 0x8XY7
             case _ if re.fullmatch(r"8..7", f"{opcode:0>4X}"):
                 self.math_sub_y_x(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             # 0x8XYE
             case _ if re.fullmatch(r"8..E", f"{opcode:0>4X}"):
                 self.bit_shift_l(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             case _ if re.fullmatch(r"9..0", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
@@ -348,7 +348,7 @@ class Cpu:
             case _:
                 return_value = RC_DECODE_FAIL
 
-        return return_value
+        return (should_increment, return_value)
 
     # 0x00E0
     @staticmethod
@@ -356,9 +356,47 @@ class Cpu:
         os.system("cls" if os.name == "nt" else "clear")
     
     # 0x00EE
-    @staticmethod
-    def subroutine_return() -> None:
-        pass
+    def subroutine_return(self) -> None:
+        # For some reason it does not take the custom getter int consideration :(
+        self.pc = self.stack.stack # type: ignore
+    
+    # 0x1NNN
+    def flow_jump(self, opcode: int) -> None:
+        address: int = opcode & int("0x0FFF", base=0)
+        self.pc = address
+        
+    # 0x2NNN
+    def subroutine_call(self, opcode:int) -> None:
+        address: int = opcode & int("0x0FFF", base=0)
+        
+        self.stack.stack = self.pc
+        self.pc = address
+
+    # 0x3XNN
+    def cond_eq(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        val: int = opcode & int("0x00FF", base=0)
+        
+        if self.registers.read_register(reg) == val:
+            self.pc += 2
+    
+    # 0x4XNN
+    def cond_neq(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        val: int = opcode & int("0x00FF", base=0)
+        
+        if self.registers.read_register(reg) != val:
+            self.pc += 2
+
+    # 0x5XY0
+    def cond_x_eq_y(self, opcode: int) -> None:
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        reg_x_val = self.registers.read_register(reg_x)
+        reg_y_val = self.registers.read_register(reg_y)
+        
+        if reg_x_val == reg_y_val:
+            self.pc += 2
 
     # 0x6XNN
     def constant_set(self, opcode: int) -> None:
@@ -437,7 +475,13 @@ class Cpu:
     
     # 0x8XY6
     def bit_shift_r(self, opcode: int) -> None:
-        pass
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_x_val: int = self.registers.read_register(reg_x)
+        
+        save_bit: int = reg_x_val & 1
+        
+        self.registers.write_register(reg_x, (reg_x_val >> 1))
+        self.registers.write_register(15, save_bit) 
     
     # 0x8XY7
     def math_sub_y_x(self, opcode: int) -> None:
@@ -454,9 +498,25 @@ class Cpu:
     
     # 0x8XYE
     def bit_shift_l(self, opcode: int) -> None:
-        pass
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_x_val: int = self.registers.read_register(reg_x)
+        
+        # Crazy calculation to always get 0x8 and the number of 0 so that it matches the bit width of the registers
+        save_bit: int = reg_x_val & int(f"0x8{'0' * ((int(self.registers.data_max).bit_length() // 4) - 1)}", base=0)
+        save_bit = save_bit > (self.registers.data_max // 4)
+        
+        self.registers.write_register(reg_x, (reg_x_val << 1) & self.registers.data_max)
+        self.registers.write_register(15, save_bit) 
             
-    
+    # 0x9XY0
+    def cond_x_neq_y(self, opcode: int) -> None:
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        reg_x_val = self.registers.read_register(reg_x)
+        reg_y_val = self.registers.read_register(reg_y)
+        
+        if reg_x_val != reg_y_val:
+            self.pc += 2
         
         
 
@@ -466,8 +526,12 @@ if __name__ == "__main__":
     
     def debug_decode_regs(op_string: str):
         opcode = int(op_string, base=0)
-        ret_code = c.decode_instruction(opcode)
+        inc, ret_code = c.decode_instruction(opcode)
         color = 32 if (ret_code == 0) else 31
         print(f"\x1b[{color}m{ret_code}\x1b[0m")
+        if inc:
+            c.pc += 2
+        print(f"{c.pc = :X}")
         print(str(c.registers))
+        print(str(c.stack))
     
