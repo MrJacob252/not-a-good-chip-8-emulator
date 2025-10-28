@@ -1,8 +1,8 @@
 # https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#specifications
 
 from typing import Iterable, Any
-import os
-import re
+import os, re
+from random import randint
 
 UINT16_MAX = int("0xFFFF", 0)
 UINT8_MAX = int("0xFF", 0)
@@ -139,6 +139,8 @@ class Cpu:
     @delay.getter
     def delay(self) -> int:
         tmp: int = self.__delay
+        # TODO: This should be probably removed
+        # Timers should decrease at the rate of 60Hz not after each access
         if tmp > 0:
             self.__delay -= 1
         return tmp
@@ -281,21 +283,26 @@ class Cpu:
                 self.bit_shift_l(opcode=opcode)
                 return_value = RC_DECODE_PASS
 
+            # 0x9XY0
             case _ if re.fullmatch(r"9..0", f"{opcode:0>4X}"):
                 self.cond_x_neq_y(opcode=opcode)
                 return_value = RC_DECODE_PASS
 
+            # 0xANNN
             case _ if re.fullmatch(r"A...", f"{opcode:0>4X}"):
+                self.mem_set_i(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
+            # 0xBNNN
             case _ if re.fullmatch(r"B...", f"{opcode:0>4X}"):
+                self.flow_offset_jump(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
-
+                should_increment = False
+            
+            # 0xCXNN
             case _ if re.fullmatch(r"C...", f"{opcode:0>4X}"):
+                self.rand(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             case _ if re.fullmatch(r"D...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
@@ -309,21 +316,24 @@ class Cpu:
                 return_value = RC_DECODE_PASS
                 pass
 
+            # 0xFX07
             case _ if re.fullmatch(r"F.07", f"{opcode:0>4X}"):
+                self.timer_get_delay(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             case _ if re.fullmatch(r"F.0A", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
 
+            # 0xFX15
             case _ if re.fullmatch(r"F.15", f"{opcode:0>4X}"):
+                self.timer_set_delay(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
+            # 0xFX18
             case _ if re.fullmatch(r"F.18", f"{opcode:0>4X}"):
+                self.timer_set_sound(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
@@ -521,6 +531,41 @@ class Cpu:
         
         if reg_x_val != reg_y_val:
             self.pc += 2
+            
+    # 0xANNN
+    def mem_set_i(self, opcode) -> None:
+        val: int = opcode & int("0x0FFF", base=0)
+        self.I.write_register(0, val)
+    
+    # 0xBNNN (TODO: Implement the SUPER-CHIP quirk)
+    def flow_offset_jump(self, opcode: int) -> None:
+        address: int = opcode & int("0x0FFF", base=0)
+        new_pc: int = self.registers.read_register(0) + address
+        self.pc = new_pc
+        
+    # 0xCXNN
+    def rand(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        val: int = opcode & int("0x00FF", base=0)
+        
+        new_val = randint(0, self.registers.data_max) & val
+        self.registers.write_register(reg, new_val)
+        
+    # 0xFX07
+    def timer_get_delay(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        self.registers.write_register(reg, self.delay)
+    
+    # 0xFX15
+    def timer_set_delay(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        self.delay = self.registers.read_register(reg)
+    
+    # 0xFX18
+    def timer_set_sound(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        self.sound = self.registers.read_register(reg)
+
         
         
 
