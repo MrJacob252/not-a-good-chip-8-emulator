@@ -30,8 +30,9 @@ class GeneralMemory:
 
 class Registers(GeneralMemory):
 
-    def __init__(self, number_of_regs, data_max) -> None:
-        self.data_max = data_max
+    def __init__(self, number_of_regs: int, data_max: int, register_char: str = "V") -> None:
+        self.data_max: int = data_max
+        self.register_char: str = register_char
         # Maybe the registers should be reworked ot dict[int, int]
         self.registers: dict[int, int] = {key: 0 for key in range(number_of_regs)}
 
@@ -47,15 +48,16 @@ class Registers(GeneralMemory):
         string: list[str] = []
         for i, (key, value) in enumerate(self.registers.items()):
             # Dynamically calculate the padding with 0 for and convert the values to hex
-            string.append(f"V{key:X}: {value:0>{int(self.data_max).bit_length()//4}X}")
-            string.append("\n") if (i % 4 == 3) else string.append(" | ")
+            string.append(f"{self.register_char}{key:X}: {value:0>{int(self.data_max).bit_length()//4}X}")
+            if i != (len(self.registers) - 1):
+                string.append("\n") if (i % 4 == 3) else string.append(" | ")
 
         return "".join(string)    
     
 class Memory(GeneralMemory):
 
-    def __init__(self, memory_size, data_max) -> None:
-        self.data_max = data_max
+    def __init__(self, memory_size: int, data_max: int) -> None:
+        self.data_max: int = data_max
         self.memory: dict[int, int] = {key: 0 for key in range(memory_size)}
     
     def read_byte(self, address: int) -> int:
@@ -83,8 +85,8 @@ class Memory(GeneralMemory):
 
 class Stack(GeneralMemory):
 
-    def __init__(self, data_max) -> None:
-        self.data_max = data_max
+    def __init__(self, data_max: int) -> None:
+        self.data_max: int = data_max
         self.__stack: list[int] = []
 
     @property
@@ -121,7 +123,7 @@ class Cpu:
         self.__delay: int = 0
         self.__sound: int = 0
         self.registers: Registers = Registers(number_of_regs=NUMBER_OF_REGISTERS, data_max=UINT8_MAX)
-        self.I: Registers = Registers(number_of_regs=1, data_max=UINT16_MAX)
+        self.I: Registers = Registers(number_of_regs=1, data_max=UINT16_MAX, register_char="I")
         self.memory: Memory = Memory(memory_size=MEMORY_SIZE, data_max=UINT16_MAX)
         self.stack: Stack = Stack(data_max=UINT16_MAX) # to assign and get values self.stack.stack must be called
 
@@ -167,6 +169,8 @@ class Cpu:
         string.append(f"{self.pc = :0>4x}\n")
         string.append(f"{self.__delay = }\n")
         string.append(f"{self.__sound = }\n")
+        string.append("\n")
+        string.append(str(self.I))
         string.append("\n")
         string.append(str(self.registers))
         string.append("\n")
@@ -278,8 +282,8 @@ class Cpu:
                 return_value = RC_DECODE_PASS
 
             case _ if re.fullmatch(r"9..0", f"{opcode:0>4X}"):
+                self.cond_x_neq_y(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             case _ if re.fullmatch(r"A...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
@@ -533,5 +537,6 @@ if __name__ == "__main__":
             c.pc += 2
         print(f"{c.pc = :X}")
         print(str(c.registers))
+        print(str(c.I))
         print(str(c.stack))
     
