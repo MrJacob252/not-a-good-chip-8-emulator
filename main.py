@@ -17,7 +17,7 @@ RC_DECODE_FAIL = -1
 class GeneralMemory:
     
     def __init__(self, data_size: int) -> None:
-        self.data_size: int = data_size
+        self.data_max: int = data_size
 
     def validate(self, memory: Iterable | None = None, address: Any = None, value: int | None = None) -> None:
         '''
@@ -25,13 +25,13 @@ class GeneralMemory:
         '''
         if memory is not None and address is not None and address not in memory:
             raise IOError("Given address out of bounds")
-        if value is not None and not(0 <= value <= self.data_size):
-            raise IOError(f"Value is out of {int(self.data_size).bit_length()}-bit bounds")
+        if value is not None and not(0 <= value <= self.data_max):
+            raise IOError(f"Value is out of {int(self.data_max).bit_length()}-bit bounds")
 
 class Registers(GeneralMemory):
 
     def __init__(self) -> None:
-        self.data_size = UINT8_MAX
+        self.data_max = UINT8_MAX
         # Maybe the registers should be reworked ot dict[int, int]
         self.registers: dict[int, int] = {key: 0 for key in range(NUMBER_OF_REGISTERS)}
 
@@ -47,7 +47,7 @@ class Registers(GeneralMemory):
         string: list[str] = []
         for i, (key, value) in enumerate(self.registers.items()):
             # Dynamically calculate the padding with 0 for and convert the values to hex
-            string.append(f"V{key:X}: {value:0>{int(self.data_size).bit_length()//4}x}")
+            string.append(f"V{key:X}: {value:0>{int(self.data_max).bit_length()//4}X}")
             string.append("\n") if (i % 4 == 3) else string.append(" | ")
 
         return "".join(string)    
@@ -55,7 +55,7 @@ class Registers(GeneralMemory):
 class Memory(GeneralMemory):
 
     def __init__(self) -> None:
-        self.data_size = UINT8_MAX
+        self.data_max = UINT8_MAX
         self.memory: dict[int, int] = {key: 0 for key in range(MEMORY_SIZE)}
     
     def read_byte(self, address: int) -> int:
@@ -76,7 +76,7 @@ class Memory(GeneralMemory):
         string: list[str] = []
         for i, (key, value) in enumerate(self.memory.items()):
             string.append(f"{key:0>3x}: ") if (i % 16 == 0) else string.append("")
-            string.append(f"{value:0>{int(self.data_size).bit_length()//4}x}")
+            string.append(f"{value:0>{int(self.data_max).bit_length()//4}x}")
             string.append("\n") if (i % 16 == 15) else string.append(" ")
 
         return "".join(string)
@@ -84,7 +84,7 @@ class Memory(GeneralMemory):
 class Stack(GeneralMemory):
 
     def __init__(self) -> None:
-        self.data_size = UINT16_MAX
+        self.data_max = UINT16_MAX
         self.__stack: list[int] = []
 
     @property
@@ -108,7 +108,7 @@ class Stack(GeneralMemory):
     def __str__(self) -> str:
         string: list[str] = []
         for i, value in enumerate(self.__stack):
-            string.append(f"{i:0>2x}: {value:0>{int(self.data_size).bit_length()//4}x}\n")
+            string.append(f"{i:0>2x}: {value:0>{int(self.data_max).bit_length()//4}x}\n")
         return "".join(string)
         
 
@@ -182,141 +182,292 @@ class Cpu:
         # Implement the PC incementation somewhere
 
         match opcode:
+            # 0x00E0
             case _ if re.fullmatch(r"00E0", f"{opcode:0>4X}"):
                 self.clear_screen()
                 return_value = RC_DECODE_PASS
+                
+            # 0x00EE    
             case _ if re.fullmatch(r"00EE", f"{opcode:0>4X}"):
                 self.subroutine_return()
                 return_value = RC_DECODE_PASS
+
             case _ if re.fullmatch(r"1...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"2...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"3...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"4...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"5..0", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+            
+            # 0x6XNN
             case _ if re.fullmatch(r"6...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 self.constant_set(opcode=opcode)
                 pass
+            
+            # 0x7XNN
             case _ if re.fullmatch(r"7...", f"{opcode:0>4X}"):
                 self.constant_add(opcode=opcode)                
                 return_value = RC_DECODE_PASS
+
+            # 0x8XY0
             case _ if re.fullmatch(r"8..0", f"{opcode:0>4X}"):
+                self.assign_from_register(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
+
+            # 0x8XY1
             case _ if re.fullmatch(r"8..1", f"{opcode:0>4X}"):
+                self.bit_or(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
+
+            # 0x8XY2
             case _ if re.fullmatch(r"8..2", f"{opcode:0>4X}"):
+                self.bit_and(opcode=opcode)    
                 return_value = RC_DECODE_PASS
                 pass
+            
+            # 0x8XY3
             case _ if re.fullmatch(r"8..3", f"{opcode:0>4X}"):
+                self.bit_xor(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
+            
+            # 0x8XY4
             case _ if re.fullmatch(r"8..4", f"{opcode:0>4X}"):
+                self.math_add(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
+
+            # 0x8XY5
             case _ if re.fullmatch(r"8..5", f"{opcode:0>4X}"):
+                self.math_sub_x_y(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
+            
+            # 0x8XY6
             case _ if re.fullmatch(r"8..6", f"{opcode:0>4X}"):
+                self.bit_shift_r(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
+
+            # 0x8XY7
             case _ if re.fullmatch(r"8..7", f"{opcode:0>4X}"):
+                self.math_sub_y_x(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
+
+            # 0x8XYE
             case _ if re.fullmatch(r"8..E", f"{opcode:0>4X}"):
+                self.bit_shift_l(opcode=opcode)
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"9..0", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"A...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"B...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"C...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"D...", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"E.9E", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"E.A1", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.07", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.0A", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.15", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.18", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.1E", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.29", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.33", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.55", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _ if re.fullmatch(r"F.65", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
                 pass
+
             case _:
                 return_value = RC_DECODE_FAIL
 
         return return_value
 
+    # 0x00E0
     @staticmethod
     def clear_screen() -> None:
         os.system("cls" if os.name == "nt" else "clear")
     
+    # 0x00EE
     @staticmethod
     def subroutine_return() -> None:
         pass
 
+    # 0x6XNN
     def constant_set(self, opcode: int) -> None:
-        reg: int = opcode & int("0x0F00", base=0)
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
         val: int = opcode & int("0x00FF", base=0)
         
         self.registers.write_register(reg, val)
 
+    # 0x7XNN
     def constant_add(self, opcode: int) -> None:
-        reg: int = opcode & int("0x0F00", base=0)
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
         val: int = opcode & int("0x00FF", base=0)
 
         curr_val: int = self.registers.read_register(reg)
         # Modulo because overflow
-        new_val: int = (curr_val + val) % (self.registers.data_size + 1)
+        new_val: int = (curr_val + val) % (self.registers.data_max + 1)
         self.registers.write_register(reg, new_val)
+    
+    # 0x8XY0 
+    def assign_from_register(self, opcode: int) -> None:
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        
+        new_val: int = self.registers.read_register(reg_y)
+        self.registers.write_register(reg_x, new_val)
+    
+    # 0x8XY1
+    def bit_or(self, opcode: int) -> None:
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        
+        new_val: int = self.registers.read_register(reg_x) | self.registers.read_register(reg_y)
+        self.registers.write_register(reg_x, new_val)
+
+    # 0x8XY2
+    def bit_and(self, opcode: int) -> None:
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        
+        new_val: int = self.registers.read_register(reg_x) & self.registers.read_register(reg_y)
+        self.registers.write_register(reg_x, new_val)
+        
+    # 0x8XY3
+    def bit_xor(self, opcode: int) -> None:
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        
+        new_val: int = self.registers.read_register(reg_x) ^ self.registers.read_register(reg_y)
+        self.registers.write_register(reg_x, new_val)
+    
+    # 0x8XY4
+    def math_add(self, opcode: int) -> None:
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        
+        new_val: int = self.registers.read_register(reg_x) + self.registers.read_register(reg_y)
+        self.registers.write_register(reg_x, (new_val & self.registers.data_max))
+        
+
+        # Set VF to 1 if overflow
+        status = 1 if (new_val > self.registers.data_max) else 0
+        self.registers.write_register(15, status)
+    
+    # 0x8XY4
+    def math_sub_x_y(self, opcode: int) -> None:
+        '''Subtract VX = VX - VY'''
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        
+        new_val: int = self.registers.read_register(reg_x) - self.registers.read_register(reg_y)
+        self.registers.write_register(reg_x, (new_val & self.registers.data_max))
+        
+        # Set VF to 1 if there is no underflow, otherwise 0
+        status = 1 if (0 <= new_val <= self.registers.data_max) else 0
+        self.registers.write_register(15, status)
+    
+    # 0x8XY6
+    def bit_shift_r(self, opcode: int) -> None:
+        pass
+    
+    # 0x8XY7
+    def math_sub_y_x(self, opcode: int) -> None:
+        '''Subtract VX = VY - VX'''
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        
+        new_val: int = self.registers.read_register(reg_y) - self.registers.read_register(reg_x)
+        self.registers.write_register(reg_x, (new_val & self.registers.data_max))
+        
+        # Set VF to 1 if there is no underflow, otherwise 0
+        status = 1 if (0 <= new_val <= self.registers.data_max) else 0
+        self.registers.write_register(15, status)
+    
+    # 0x8XYE
+    def bit_shift_l(self, opcode: int) -> None:
+        pass
+            
+    
+        
+        
 
 if __name__ == "__main__":
     c = Cpu()
     print()
+    
+    def debug_decode_regs(op_string: str):
+        opcode = int(op_string, base=0)
+        ret_code = c.decode_instruction(opcode)
+        color = 32 if (ret_code == 0) else 31
+        print(f"\x1b[{color}m{ret_code}\x1b[0m")
+        print(str(c.registers))
     
