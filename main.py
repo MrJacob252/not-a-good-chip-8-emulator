@@ -8,6 +8,10 @@
 from typing import Iterable, Any
 import os, re
 from random import randint
+import pygame
+from pathlib import Path
+
+from pygame.mixer import Sound
 
 UINT16_MAX = int("0xFFFF", 0)
 UINT8_MAX = int("0xFF", 0)
@@ -133,6 +137,12 @@ class Cpu:
         self.I: Registers = Registers(number_of_regs=1, data_max=UINT16_MAX, register_char="I")
         self.memory: Memory = Memory(memory_size=MEMORY_SIZE, data_max=UINT8_MAX)
         self.stack: Stack = Stack(data_max=UINT16_MAX) # to assign and get values self.stack.stack must be called
+        
+        # Pygame related parameters
+        self.beep: Sound = self.init_beep(Path(r".\440.wav"))
+        self.screen_size: tuple[int, int] = (64, 32)
+        self.screen: list[list[int]] = [([0] * self.screen_size[0]) for _ in range(self.screen_size[1])]
+        self.pygame_flags: int = pygame.SCALED | pygame.SHOWN | pygame.RESIZABLE
 
     @classmethod
     def validate_timer(cls, value):
@@ -187,6 +197,16 @@ class Cpu:
         string.append("\n")
         string.append(str(self.stack))
         return "".join(string)
+    
+    @staticmethod
+    def init_beep(file: Path) -> Sound:
+        pygame.mixer.init()
+        beep = pygame.mixer.Sound(file)
+        return beep
+
+    def play_beep(self, maxtime: int=100) -> None:
+        self.beep.play(maxtime=maxtime)
+        # pygame.time.delay(maxtime)
     
     def decode_instruction(self, opcode: int):
         
@@ -311,9 +331,10 @@ class Cpu:
                 self.rand(opcode=opcode)
                 return_value = RC_DECODE_PASS
 
+            # 0xDXYN
             case _ if re.fullmatch(r"D...", f"{opcode:0>4X}"):
+                self.draw_sprite(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             case _ if re.fullmatch(r"E.9E", f"{opcode:0>4X}"):
                 return_value = RC_DECODE_PASS
@@ -559,6 +580,46 @@ class Cpu:
         
         new_val = randint(0, self.registers.data_max) & val
         self.registers.write_register(reg, new_val)
+
+    # 0xDXYN
+    def draw_sprite(self, opcode: int) -> None:
+        reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
+        reg_y: int = (opcode & int("0x00F0", base=0)) >> 4
+        n: int = opcode & int("0x000F", base=0)
+        init_address: int = self.I.read_register(0)
+
+        # The coordinates should wrap around 
+        # (but the sprite should be clipped on the edge)
+        x_coord: int = self.registers.read_register(reg_x) % self.screen_size[0] 
+        y_coord: int = self.registers.read_register(reg_y) % self.screen_size[1]
+
+        # This is probably extremely ineficient
+        # import itertools
+        # list(itertools.starmap(lambda i, j: i ^ j, zip(a, b)))
+        new_vf = 0
+        for row in range(n):
+            curr_y: int = y_coord + row
+            # clip the sprite on the screen edge
+            if (curr_y) >= self.screen_size[1]:
+                break
+
+            sprite_row: int = self.memory.read_byte(init_address + row)
+            for i, bit in enumerate(f"{sprite_row:0>8b}"):
+                curr_x: int = x_coord + i
+                # clip the sprite on the screen edge
+                if (curr_x) >= self.screen_size[0]:
+                    break
+
+                curr_pixel: int = self.screen[curr_y][curr_x]
+
+                if (curr_pixel == 1) and (int(bit) == 1):
+                    new_vf = 1
+                
+                if int(bit) == 1:
+                    self.screen[curr_y][curr_x] = (~self.screen[curr_y][curr_x]) & 1
+
+        # if collision occured, write 1 to vf, else write 0
+        self.registers.write_register(15, new_vf)                    
         
     # 0xFX07
     def timer_get_delay(self, opcode: int) -> None:
@@ -620,7 +681,8 @@ class Cpu:
             val_to_load: int = self.memory.read_byte(init_address + i)
             self.registers.write_register(i, val_to_load)
     
-        
+    def main_loop(self):
+        pass
         
 
 if __name__ == "__main__":
@@ -646,4 +708,10 @@ if __name__ == "__main__":
         print(str(c.registers))
         print(str(c.I))
         print(str(c.stack))
-    
+
+    def debug_print_screen():
+        for i in range(len(c.screen)):
+            line = []
+            for j in range(len(c.screen[i])):
+                line.append("\u2588") if c.screen[i][j] == 1 else line.append(" ")
+            print("".join(line))
