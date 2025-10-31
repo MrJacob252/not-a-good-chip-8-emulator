@@ -253,9 +253,6 @@ class Cpu:
         a: int = opcode & int("0xF000", base=0)
         b: int = opcode & int("0x0FFF", base=0)
 
-        # Implement the PC incementation somewhere
-        should_increment = True
-
         match opcode:
             # 0x00E0
             case _ if re.fullmatch(r"00E0", f"{opcode:0>4X}"):
@@ -266,7 +263,6 @@ class Cpu:
             case _ if re.fullmatch(r"00EE", f"{opcode:0>4X}"):
                 self.subroutine_return()
                 return_value = RC_DECODE_PASS
-                should_increment = False
 
             # 0x1NNN
             case _ if re.fullmatch(r"1...", f"{opcode:0>4X}"):
@@ -278,7 +274,6 @@ class Cpu:
             case _ if re.fullmatch(r"2...", f"{opcode:0>4X}"):
                 self.subroutine_call(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                should_increment = False
 
             # 0x3XNN
             case _ if re.fullmatch(r"3...", f"{opcode:0>4X}"):
@@ -364,7 +359,6 @@ class Cpu:
             case _ if re.fullmatch(r"B...", f"{opcode:0>4X}"):
                 self.flow_offset_jump(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                should_increment = False
             
             # 0xCXNN
             case _ if re.fullmatch(r"C...", f"{opcode:0>4X}"):
@@ -376,22 +370,25 @@ class Cpu:
                 self.draw_sprite(opcode=opcode)
                 return_value = RC_DECODE_PASS
 
+            # 0xEX9E
             case _ if re.fullmatch(r"E.9E", f"{opcode:0>4X}"):
+                self.key_skip_eq(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
+            # 0xEXA1
             case _ if re.fullmatch(r"E.A1", f"{opcode:0>4X}"):
+                self.key_skip_neq(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             # 0xFX07
             case _ if re.fullmatch(r"F.07", f"{opcode:0>4X}"):
                 self.timer_get_delay(opcode=opcode)
                 return_value = RC_DECODE_PASS
 
+            # 0xFX0A
             case _ if re.fullmatch(r"F.0A", f"{opcode:0>4X}"):
+                self.key_get_key(opcode=opcode)
                 return_value = RC_DECODE_PASS
-                pass
 
             # 0xFX15
             case _ if re.fullmatch(r"F.15", f"{opcode:0>4X}"):
@@ -432,7 +429,7 @@ class Cpu:
             case _:
                 return_value = RC_DECODE_FAIL
 
-        return (should_increment, return_value)
+        return return_value
 
     # 0x00E0
     def clear_screen(self) -> None:
@@ -544,7 +541,7 @@ class Cpu:
         status = 1 if (new_val > self.registers.data_max) else 0
         self.registers.write_register(15, status)
     
-    # 0x8XY4
+    # 0x8XY5
     def math_sub_x_y(self, opcode: int) -> None:
         '''Subtract VX = VX - VY'''
         reg_x: int = (opcode & int("0x0F00", base=0)) >> 8
@@ -660,12 +657,32 @@ class Cpu:
 
         # if collision occured, write 1 to vf, else write 0
         self.registers.write_register(15, new_vf)                    
-        
+
+    # 0xEX9E
+    def key_skip_eq(self, opcode) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+
+        if self.last_key == self.registers.read_register(reg):
+            self.pc += 2
+
+    # 0xEXA1    
+    def key_skip_neq(self, opcode) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+
+        if self.last_key != self.registers.read_register(reg):
+            self.pc += 2
+
     # 0xFX07
     def timer_get_delay(self, opcode: int) -> None:
         reg: int = (opcode & int("0x0F00", base=0)) >> 8
         self.registers.write_register(reg, self.delay)
     
+    # 0xFX0A TODO This should be a blocking operation
+    # All processing should stop but timers should continue processing
+    def key_get_key(self, opcode: int) -> None:
+        reg: int = (opcode & int("0x0F00", base=0)) >> 8
+        self.registers.write_register(reg, self.last_key)
+
     # 0xFX15
     def timer_set_delay(self, opcode: int) -> None:
         reg: int = (opcode & int("0x0F00", base=0)) >> 8
@@ -755,10 +772,10 @@ class Cpu:
                     if event.key in self.keymap:
                         self.last_key = self.keymap[event.key]
 
-            # Decode instruction (The should increment should be removed)
+            # Decode instruction
             opcode: int = self.fetch_opcode()
             # print(f"{opcode:0>4X}")
-            _, rc = self.decode_instruction(opcode=opcode)
+            rc = self.decode_instruction(opcode=opcode)
 
             if rc != RC_DECODE_PASS:
                 print(str(self))
@@ -773,8 +790,6 @@ class Cpu:
                     pixel_array[x, y] = (255, 255, 255) if self.screen[y][x] == 1 else (0, 0, 0) #type: ignore
 
             pixel_array.close()
-
-            # Increment pc (TODO Move this to the fetch function probably)
 
             pygame.display.flip()
 
@@ -802,11 +817,10 @@ if __name__ == "__main__":
     
     def debug_decode_regs(op_string: str) -> None:
         opcode = int(op_string, base=0)
-        inc, ret_code = c.decode_instruction(opcode)
+        c.pc += 2
+        ret_code = c.decode_instruction(opcode)
         color = 32 if (ret_code == 0) else 31
         print(f"\x1b[{color}m{ret_code}\x1b[0m")
-        if inc:
-            c.pc += 2
         print(f"{c.pc = :X}")
         print(str(c.registers))
         print(str(c.I))
