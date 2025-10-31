@@ -68,7 +68,7 @@ class Memory(GeneralMemory):
 
     def __init__(self, memory_size: int, data_max: int) -> None:
         self.data_max: int = data_max
-        self.memory: dict[int, int] = {key: 0 for key in range(memory_size // int(self.data_max).bit_length())}
+        self.memory: dict[int, int] = {key: 0 for key in range(memory_size)}
     
     def read_byte(self, address: int) -> int:
         self.validate(self.memory, address)
@@ -137,6 +137,7 @@ class Cpu:
         self.I: Registers = Registers(number_of_regs=1, data_max=UINT16_MAX, register_char="I")
         self.memory: Memory = Memory(memory_size=MEMORY_SIZE, data_max=UINT8_MAX)
         self.stack: Stack = Stack(data_max=UINT16_MAX) # to assign and get values self.stack.stack must be called
+        self.entry_point: int = int("0x200", base=0)
         
         # Pygame related parameters
         self.beep: Sound = self.init_beep(Path(r".\440.wav"))
@@ -434,9 +435,9 @@ class Cpu:
         return (should_increment, return_value)
 
     # 0x00E0
-    @staticmethod
-    def clear_screen() -> None:
-        os.system("cls" if os.name == "nt" else "clear")
+    def clear_screen(self) -> None:
+        # os.system("cls" if os.name == "nt" else "clear")
+        self.screen: list[list[int]] = [([0] * self.screen_size[0]) for _ in range(self.screen_size[1])]
     
     # 0x00EE
     def subroutine_return(self) -> None:
@@ -738,6 +739,8 @@ class Cpu:
         clock = pygame.time.Clock()
         done: bool = False
 
+        self.pc = self.entry_point
+
         while not done:
 
             clock.tick(self.frame_rate)
@@ -749,14 +752,17 @@ class Cpu:
                 if event.type == pygame.QUIT:
                     done = True
                 if event.type == pygame.KEYDOWN:
-                    self.last_key = self.keymap[event.key]
+                    if event.key in self.keymap:
+                        self.last_key = self.keymap[event.key]
 
             # Decode instruction (The should increment should be removed)
             opcode: int = self.fetch_opcode()
+            # print(f"{opcode:0>4X}")
             _, rc = self.decode_instruction(opcode=opcode)
 
             if rc != RC_DECODE_PASS:
-                raise Exception("Instruction decode failed")
+                print(str(self))
+                raise Exception(f"Instruction \x2b[32m0x{opcode:0>4X}\x1b[0m decode failed")
 
             # Redraw screen
             pixel_array = pygame.PixelArray(window)
@@ -773,6 +779,12 @@ class Cpu:
             pygame.display.flip()
 
         pygame.quit()
+
+    def load_program(self, bin_path: Path, address: int=int("0x200", base=0)) -> None:
+        # There shoulprobably be some check but whatever for now
+        with open(bin_path, "rb") as file:
+            binary: bytes = file.read()
+            self.memory.write_memory_block(address, list(binary))
 
         
 
@@ -806,3 +818,7 @@ if __name__ == "__main__":
             for j in range(len(c.screen[i])):
                 line.append("\u2588") if c.screen[i][j] == 1 else line.append(" ")
             print("".join(line))
+
+    c.load_program(Path(r"2-ibm-logo.ch8"))
+    # c.load_program(Path(r"1-chip8-logo.ch8"))
+    c.main_loop()
