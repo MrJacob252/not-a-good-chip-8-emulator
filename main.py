@@ -143,6 +143,15 @@ class Cpu:
         self.screen_size: tuple[int, int] = (64, 32)
         self.screen: list[list[int]] = [([0] * self.screen_size[0]) for _ in range(self.screen_size[1])]
         self.pygame_flags: int = pygame.SCALED | pygame.SHOWN | pygame.RESIZABLE
+        self.frame_rate: int | float = 60
+        self.last_key: int = 255
+
+        self.keymap: dict[int, int] = {
+            pygame.K_1: 0,  pygame.K_2: 1,  pygame.K_3: 2,  pygame.K_4: 3,
+            pygame.K_q: 4,  pygame.K_w: 5,  pygame.K_e: 6,  pygame.K_r: 7,
+            pygame.K_a: 8,  pygame.K_s: 9,  pygame.K_d: 10, pygame.K_f: 11,
+            pygame.K_z: 12, pygame.K_x: 13, pygame.K_c: 14, pygame.K_v: 15,
+        }
 
     @classmethod
     def validate_timer(cls, value):
@@ -158,8 +167,8 @@ class Cpu:
         tmp: int = self.__delay
         # TODO: This should be probably removed
         # Timers should decrease at the rate of 60Hz not after each access
-        if tmp > 0:
-            self.__delay -= 1
+        # if tmp > 0:
+        #     self.__delay -= 1
         return tmp
     
     @delay.setter
@@ -174,8 +183,10 @@ class Cpu:
     @sound.getter
     def sound(self) -> int:
         tmp: int = self.__sound
-        if tmp > 0:
-            self.__sound -= 1
+        # TODO: This should be probably removed
+        # Timers should decrease at the rate of 60Hz not after each access
+        # if tmp > 0:
+        #     self.__sound -= 1
         return tmp
     
     @sound.setter
@@ -207,6 +218,34 @@ class Cpu:
     def play_beep(self, maxtime: int=100) -> None:
         self.beep.play(maxtime=maxtime)
         # pygame.time.delay(maxtime)
+
+    def init_memory(self) -> None:
+        # Init memory with the font data
+        # Place the data between 0x050 and 0x09F because it convention apparently
+
+        font_data = [
+            "0xF0", "0x90", "0x90", "0x90", "0xF0", # 0
+            "0x20", "0x60", "0x20", "0x20", "0x70", # 1
+            "0xF0", "0x10", "0xF0", "0x80", "0xF0", # 2
+            "0xF0", "0x10", "0xF0", "0x10", "0xF0", # 3
+            "0x90", "0x90", "0xF0", "0x10", "0x10", # 4
+            "0xF0", "0x80", "0xF0", "0x10", "0xF0", # 5
+            "0xF0", "0x80", "0xF0", "0x90", "0xF0", # 6
+            "0xF0", "0x10", "0x20", "0x40", "0x40", # 7
+            "0xF0", "0x90", "0xF0", "0x90", "0xF0", # 8
+            "0xF0", "0x90", "0xF0", "0x10", "0xF0", # 9
+            "0xF0", "0x90", "0xF0", "0x90", "0x90", # A
+            "0xE0", "0x90", "0xE0", "0x90", "0xE0", # B
+            "0xF0", "0x80", "0x80", "0x80", "0xF0", # C
+            "0xE0", "0x90", "0x90", "0x90", "0xE0", # D
+            "0xF0", "0x80", "0xF0", "0x80", "0xF0", # E
+            "0xF0", "0x80", "0xF0", "0x80", "0x80"  # F
+        ]
+
+        self.memory.write_memory_block(
+            start=int("0x050", base=0),
+            values=list(map(lambda x: int(x, base=0), font_data))
+            )
     
     def decode_instruction(self, opcode: int):
         
@@ -681,8 +720,60 @@ class Cpu:
             val_to_load: int = self.memory.read_byte(init_address + i)
             self.registers.write_register(i, val_to_load)
     
-    def main_loop(self):
-        pass
+    def fetch_opcode(self) -> int:
+        a: int = self.memory.read_byte(self.pc) << int(self.memory.data_max).bit_length()
+        b: int = self.memory.read_byte(self.pc + 1)
+
+        self.pc += 2
+
+        return a | b
+
+    def main_loop(self) -> None:
+        self.init_memory()
+        
+        pygame.init()
+
+        window: pygame.Surface = pygame.display.set_mode(size=self.screen_size, flags=self.pygame_flags)
+
+        clock = pygame.time.Clock()
+        done: bool = False
+
+        while not done:
+
+            clock.tick(self.frame_rate)
+
+            # Decrement timers
+
+            # Capture key
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    done = True
+                if event.type == pygame.KEYDOWN:
+                    self.last_key = self.keymap[event.key]
+
+            # Decode instruction (The should increment should be removed)
+            opcode: int = self.fetch_opcode()
+            _, rc = self.decode_instruction(opcode=opcode)
+
+            if rc != RC_DECODE_PASS:
+                raise Exception("Instruction decode failed")
+
+            # Redraw screen
+            pixel_array = pygame.PixelArray(window)
+            # Print to the screen (most likely inefficient as hell)
+            for x in range(self.screen_size[0]):
+                for y in range(self.screen_size[1]):
+                    # Has some issues with typing... dunno what
+                    pixel_array[x, y] = (255, 255, 255) if self.screen[y][x] == 1 else (0, 0, 0) #type: ignore
+
+            pixel_array.close()
+
+            # Increment pc (TODO Move this to the fetch function probably)
+
+            pygame.display.flip()
+
+        pygame.quit()
+
         
 
 if __name__ == "__main__":
