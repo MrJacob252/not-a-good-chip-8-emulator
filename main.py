@@ -144,7 +144,7 @@ class Cpu:
         self.screen_size: tuple[int, int] = (64, 32)
         self.screen: list[list[int]] = [([0] * self.screen_size[0]) for _ in range(self.screen_size[1])]
         self.pygame_flags: int = pygame.SCALED | pygame.SHOWN | pygame.RESIZABLE
-        self.frame_rate: int | float = 60
+        self.frame_rate: int | float = 700
         self.last_key: int = 255
 
         self.keymap: dict[int, int] = {
@@ -677,10 +677,18 @@ class Cpu:
         reg: int = (opcode & int("0x0F00", base=0)) >> 8
         self.registers.write_register(reg, self.delay)
     
-    # 0xFX0A TODO This should be a blocking operation
-    # All processing should stop but timers should continue processing
+    # 0xFX0A
     def key_get_key(self, opcode: int) -> None:
         reg: int = (opcode & int("0x0F00", base=0)) >> 8
+
+        for event in pygame.event.get():
+            if event.type == pygame.KEYDOWN:
+                if event.key in self.keymap:
+                    self.last_key = self.keymap[event.key]
+                else:
+                    self.last_key = 255
+                    self.pc -= 2 
+
         self.registers.write_register(reg, self.last_key)
 
     # 0xFX15
@@ -771,6 +779,8 @@ class Cpu:
                 if event.type == pygame.KEYDOWN:
                     if event.key in self.keymap:
                         self.last_key = self.keymap[event.key]
+                    else:
+                        self.last_key = 255
 
             # Decode instruction
             opcode: int = self.fetch_opcode()
@@ -833,6 +843,7 @@ if __name__ == "__main__":
                 line.append("\u2588") if c.screen[i][j] == 1 else line.append(" ")
             print("".join(line))
 
-    c.load_program(Path(r"2-ibm-logo.ch8"))
+    c.load_program(Path(r"3-corax+.ch8"))
+    # c.load_program(Path(r"2-ibm-logo.ch8"))
     # c.load_program(Path(r"1-chip8-logo.ch8"))
     c.main_loop()
