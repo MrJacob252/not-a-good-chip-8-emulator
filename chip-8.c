@@ -1,117 +1,11 @@
-#define SDL_MAIN_USE_CALLBACKS 1 // Use callbacks insted of main
-#include <stdio.h>
-#include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>
-#include <SDL3/SDL_stdinc.h>
+#ifndef CHIP8C
+#define CHIP8C
 
-// ************************************************************
-// Defines
-
-#define STEP_RATE_IN_MS 16.6667f // 60Hz ((1/60) * 1000)
-#define PIXEL_SIZE 24 // Size of the individual pixels of the chip-8 screen
-#define SCREEN_WIDTH_IN_PX  64
-#define SCREEN_HEIGHT_IN_PX 32
-#define SCREEN_MATRIX_SIZE (SCREEN_HEIGHT_IN_PX * SCREEN_WIDTH_IN_PX)
-#define SCREEN_MAX_PX_STATES 2 // On / Off
-
-#define SDL_WINDOW_WIDTH (SCREEN_WIDTH_IN_PX * PIXEL_SIZE)
-#define SDL_WINDOW_HEIGHT (SCREEN_HEIGHT_IN_PX * PIXEL_SIZE)
-
-#define MEMORY_SIZE_IN_KIB 4
-#define MEMORY_SIZE (MEMORY_SIZE_IN_KIB * 1024)
-#define STACK_SIZE 16
-
-#define NUM_REGS 16
-
-#define NUM_PX_STATES 2
-
-#define FONT_START_ADDR 0x050
-#define ROM_START 0x200
-
-#define ROM_DIRECTORY "./ROMS/"
-
-// ************************************************************
-// Typedef
-
-typedef enum
-{
-    PX_OFF = 0U,
-    PX_ON  = 1U,
-} ScreenPxState;
-
-typedef enum 
-{
-    V0 = 0U,
-    V1 = 1U,
-    V2 = 2U,
-    V3 = 3U,
-    V4 = 4U,
-    V5 = 5U,
-    V6 = 6U,
-    V7 = 7U,
-    V8 = 8U,
-    V9 = 9U,
-    VA = 10U,
-    VB = 11U,
-    VC = 12U,
-    VD = 13U,
-    VE = 14U,
-    VF = 15U,
-} Regs;
-
-// ************************************************************
-// Global variables
-
-// Uint16 PC = 0;
-// Uint16 I = 0;
-// Uint16 stack[STACK_SIZE] = {0};
-// Uint8 delayTimer = 0;
-// Uint8 soundTimer = 0;
-// Uint8 registers[NUM_REGS] = {0};
-// Uint8 memory[MEMORY_SIZE/8] = {0}; // 4 KiB comprised of 8-bit numbers
-
-Uint8 font[] = {
-    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
-    0x20, 0x60, 0x20, 0x20, 0x70, // 1
-    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
-    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
-    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
-    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
-    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
-    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
-    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
-    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
-    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
-    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
-    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
-    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
-    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
-};
-
-typedef struct
-{
-    Uint16 PC;
-    Uint16 I;
-    Uint16 stack[STACK_SIZE];
-    Uint8 delayTimer;
-    Uint8 soundTimer;
-    Uint8 registers[NUM_REGS];
-    Uint8 memory [MEMORY_SIZE];
-    Uint8 screen[SCREEN_MATRIX_SIZE];
-} MachineState;
-
-typedef struct 
-{
-    SDL_Window *window;
-    SDL_Renderer *renderer;
-    MachineState machineState;
-    Uint64 lastTick;
-} AppState;
+#include "chip-8.h"
 
 // ************************************************************
 
-void FontInit(MachineState *machine, Uint16 startAddr, Uint16 length, Uint8 *data)
+void FontInit(MachineState *machine, Uint16 startAddr, Uint16 length, const Uint8 *data)
 {
     // Probably worth adding some handling against writing outside of the memory
     Uint16 i;
@@ -131,21 +25,218 @@ void MachineInit(MachineState *machine)
 }
 
 // Get value of specific pixel on the screen
-ScreenPxState GetPixelValue(const MachineState *machine, Uint16 x, Uint16 y)
+ScreenPxState GetPixelValue(const MachineState *machine, Uint32 x, Uint32 y)
 {
-    Uint16 location = (y * SCREEN_WIDTH_IN_PX) + x;
+    Uint32 location = (y * SCREEN_WIDTH_IN_PX) + x;
     return (ScreenPxState)(machine->screen[location] & 1);
 }
 
 // Set the position of the pixel-to-be-drawn
-void SetPixelPosition(SDL_FRect *r, Uint16 x, Uint16 y)
+void SetPixelPosition(SDL_FRect *r, Uint32 x, Uint32 y)
 {
     r->x = (float)(x * PIXEL_SIZE);
     r->y = (float)(y * PIXEL_SIZE);
 }
 
-// ************************************************************
+void RefreshScreen(AppState *appstate)
+{
+    MachineState *machine = &appstate->machineState;
+    SDL_FRect r;
+    Uint32 x, y;
+    ScreenPxState pxState;
 
+    r.w = r.h = PIXEL_SIZE;
+    // Set the drawing color to black and clear the screen
+    SDL_SetRenderDrawColor(appstate->renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(appstate->renderer);
+
+    for (y = 0; y < SCREEN_HEIGHT_IN_PX; y++)
+    {
+        for (x = 0; x < SCREEN_WIDTH_IN_PX; x++)
+        {
+            pxState = GetPixelValue(machine, x, y);
+            if (pxState == PX_ON) // Draw white rectangle where ON pixel should be
+            {
+                SetPixelPosition(&r, x, y);
+                SDL_SetRenderDrawColor(appstate->renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
+                SDL_RenderFillRect(appstate->renderer, &r);
+            }
+        }
+    }
+
+    SDL_RenderPresent(appstate->renderer);
+}
+
+// ************************************************************
+// Fetch, Decode, Execute
+
+Uint16 FetchInstruction(MachineState *machine)
+{
+    Uint16 opCode;
+    opCode = ((Uint16)machine->memory[machine->PC] << 8) | (Uint16)machine->memory[(machine->PC + 1)];
+    machine->PC += 2;
+    SDL_Log("%x\n", opCode);
+    return opCode;
+}
+
+void OP_DXYN(MachineState *machine, Uint16 x, Uint16 y, Uint16 n)
+{
+    Uint8 vx, vy, colData, px, flipped;
+    Uint16 col, row, screenIndex;
+
+    // Location can wrap
+    // Sprites should clip
+    vx = (machine->registers[x] % SCREEN_WIDTH_IN_PX);
+    vy = (machine->registers[y] % SCREEN_HEIGHT_IN_PX);
+
+    machine->registers[VF] = 0;
+
+    for (row = 0; row < n; row++)
+    {
+        if ((row + vy) >= SCREEN_HEIGHT_IN_PX)
+        {
+            break; // Clip the sprite
+        }
+
+        colData = machine->memory[(machine->I + row)];
+
+        for (col = 0; (col < 8); col++)
+        {
+            if ((col + vx) >= SCREEN_WIDTH_IN_PX)
+            {
+                break; // Clip the sprite
+            }
+
+            screenIndex = ((row + vy) * SCREEN_WIDTH_IN_PX) + (col + vx);
+            px = (colData >> (7 - col)) & 0x01U;
+
+            if (px)
+            {
+                if (machine->screen[screenIndex] == PX_ON)
+                {
+                    machine->registers[VF] = 1;
+                }
+                machine->screen[screenIndex] ^= PX_ON;
+            }
+        }
+    }
+    return;
+}
+/*
+- [ ] 0NNN -> Skip
+- [x] 00E0
+- [x] 00EE
+- [x] 1NNN
+- [x] 2NNN
+- [x] 3XNN
+- [x] 4XNN
+- [x] 5XY0
+- [x] 6XNN
+- [x] 7XNN
+- [ ] 8XY0
+- [ ] 8XY1
+- [ ] 8XY2
+- [ ] 8XY3
+- [ ] 8XY4
+- [ ] 8XY5
+- [ ] 8XY6
+- [ ] 8XY7
+- [ ] 8XYE
+- [x] 9XY0
+- [x] ANNN
+- [x] BNNN -> Is ambiguous and can have different behavior based on emulator
+- [ ] CXNN
+- [x] DXYN
+- [ ] EX9E
+- [ ] EXA1
+- [ ] FX07
+- [ ] FX0A
+- [ ] FX15
+- [ ] FX18
+- [ ] FX1E
+- [ ] FX29
+- [ ] FX33
+- [ ] FX55
+- [ ] FX65
+*/
+// This will be mess...
+void DecodeExecute (MachineState *machine, Uint16 opcode)
+{
+    Uint16 nibble, nnn, nn, n, x, y;
+    nibble = (opcode & 0xF000U) >> 12U;
+    nnn = (opcode & 0x0FFFU);
+    nn  = (opcode & 0x00FFU);
+    n   = (opcode & 0x000FU);
+    x   = (opcode & 0x0F00U) >> 8U;
+    y   = (opcode & 0x00F0U) >> 4U;
+
+    switch (nibble)
+    {
+        case 0x0:
+            switch (nnn)
+            {
+                case 0x0E0: // Clear screeen
+                    SDL_zeroa(machine->screen);
+                    break;
+                case 0x0EE: 
+                    machine->SP--;
+                    machine->PC = machine->SP;
+                    break;
+                default: // 0x0NNN instruction skipped
+                    break;
+            }
+            break;
+        case 0x1: // Jump
+            machine->PC = nnn;
+            break;
+        case 0x2: // Call subroutine
+            machine->stack[machine->SP] = machine->PC;
+            machine->SP++;
+            machine->PC = nnn;
+            break;
+        case 0x3: // Skip if VX == NN
+            if (machine->registers[x] == (Uint8)nn)
+            {
+                machine->PC += 2;
+            }
+            break;
+        case 0x4: // Skip if VX != NN
+            if (machine->registers[x] != (Uint8)nn)
+            {
+                machine->PC += 2;
+            }
+            break;
+        case 0x5: // Skip if VX == VY
+            if (machine->registers[x] == machine->registers[y])
+            {
+                machine->PC += 2;
+            }
+            break;
+        case 0x6: // Set VX to NN
+            machine->registers[x] = nn;
+            break;
+        case 0x7: // Add NN to VX (without carry)
+            machine->registers[x] += nn;
+            break;
+        case 0x9: // Skip if VX != VY
+            if (machine->registers[x] != machine->registers[y])
+            {
+                machine->PC += 2;
+            }
+            break;
+        case 0xA: // Set I to the address NNN
+            machine->I = nnn;
+            break;
+        case 0xB: // Jump to NNN + V0
+            machine->PC = nnn + machine->registers[V0];
+            break;
+        case 0xD: // Draw on screen
+            OP_DXYN(machine, x, y, n);
+            break;
+        default:
+            break;
+    }
+}
 
 // ************************************************************
 // SDL Callbacks
@@ -186,7 +277,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
     // TODO: Move to function?
     // TODO: Get filename from the arguments
     // char romName[] = "/home/jacob/Code/not-a-good-chip-8-emulator/chip8-test-suite/bin/2-ibm-logo.ch8";
-    char *romName = "2-ibm-logo.ch8";
+    // char *romName = "2-ibm-logo.ch8";
+    char *romName = "1-chip8-logo.ch8";
     char *romDir = ROM_DIRECTORY;
     size_t pathSize = SDL_strlen(romName) + SDL_strlen(romDir) + 1; // +1 for NULL terminator
     char path[pathSize];
@@ -226,40 +318,18 @@ SDL_AppResult SDL_AppIterate(void *appsate)
     MachineState *machine = &state->machineState;
     const Uint64 now = SDL_GetTicks();
     
-    SDL_FRect r;
-    Uint32 x, y;
-    ScreenPxState pxState;
-
     // run game logic if we're at or past the time to run it.
     // if we're _really_ behind the time to run it, run it
     // several times.
-    while ((now - state->lastTick) >= STEP_RATE_IN_MS)
+    while ((now - state->lastTick) >= CPU_CLOCK_IN_MHZ)
     {
-        // TODO emulator step
-        state->lastTick += STEP_RATE_IN_MS; // To run it multiple times we're reaally behind
+        Uint16 opCode = FetchInstruction(machine);
+        DecodeExecute(machine, opCode);
+        state->lastTick += CPU_CLOCK_IN_MHZ; // To run it multiple times we're reaally behind
+        RefreshScreen(state); // TODO: Should be capped at 60Hz I think
     }
 
-    // == Draw the screen == 
-    r.w = r.h = PIXEL_SIZE;
-    // Set the drawing color to black and clear the screen
-    SDL_SetRenderDrawColor(state->renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-    SDL_RenderClear(state->renderer);
 
-    for (y = 0; y < SCREEN_HEIGHT_IN_PX; y++)
-    {
-        for (x = 0; x < SCREEN_WIDTH_IN_PX; x++)
-        {
-            pxState = GetPixelValue(machine, x, y);
-            if (pxState == PX_ON) // Draw white rectangle where ON pixel should be
-            {
-                SetPixelPosition(&r, x, y);
-                SDL_SetRenderDrawColor(state->renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
-                SDL_RenderFillRect(state->renderer, &r);
-            }
-        }
-    }
-
-    SDL_RenderPresent(state->renderer);
     return result;
 }
 
@@ -291,3 +361,5 @@ void SDL_AppQuit(void *appsate, SDL_AppResult result)
         SDL_free(state);
     }
 }
+
+#endif
