@@ -133,36 +133,38 @@ void OP_DXYN(MachineState *machine, Uint16 x, Uint16 y, Uint16 n)
 - [x] 5XY0
 - [x] 6XNN
 - [x] 7XNN
-- [ ] 8XY0
-- [ ] 8XY1
-- [ ] 8XY2
-- [ ] 8XY3
-- [ ] 8XY4
-- [ ] 8XY5
-- [ ] 8XY6
-- [ ] 8XY7
-- [ ] 8XYE
+- [x] 8XY0
+- [x] 8XY1
+- [x] 8XY2
+- [x] 8XY3
+- [x] 8XY4
+- [x] 8XY5
+- [x] 8XY6
+- [x] 8XY7
+- [x] 8XYE
 - [x] 9XY0
 - [x] ANNN
 - [x] BNNN -> Is ambiguous and can have different behavior based on emulator
-- [ ] CXNN
+- [x] CXNN
 - [x] DXYN
 - [ ] EX9E
 - [ ] EXA1
-- [ ] FX07
+- [x] FX07
 - [ ] FX0A
-- [ ] FX15
-- [ ] FX18
-- [ ] FX1E
-- [ ] FX29
+- [x] FX15
+- [x] FX18
+- [x] FX1E
+- [x] FX29
 - [ ] FX33
-- [ ] FX55
-- [ ] FX65
+- [x] FX55
+- [x] FX65
 */
 // This will be mess...
 void DecodeExecute (MachineState *machine, Uint16 opcode)
 {
     Uint16 nibble, nnn, nn, n, x, y;
+    Uint8 newValue, oldValue, carry;
+    Sint32 rnd;
     nibble = (opcode & 0xF000U) >> 12U;
     nnn = (opcode & 0x0FFFU);
     nn  = (opcode & 0x00FFU);
@@ -218,6 +220,50 @@ void DecodeExecute (MachineState *machine, Uint16 opcode)
         case 0x7: // Add NN to VX (without carry)
             machine->registers[x] += nn;
             break;
+        case 0x8:
+            switch (n)
+            {
+                case 0x0: // Set VX to value of VY
+                    machine->registers[x] = machine->registers[y];
+                    break;
+                case 0x1: // VX = VX or VY
+                    machine->registers[x] |= machine->registers[y];
+                    break;
+                case 0x2: // VX = VX and VY
+                    machine->registers[x] &= machine->registers[y];
+                    break;
+                case 0x3: // VX = VX xor VY
+                    machine->registers[x] ^= machine->registers[y];
+                    break;
+                case 0x4: // VX = VX + VY with carry
+                    oldValue = machine->registers[x];
+                    machine->registers[x] += machine->registers[y];
+                    machine->registers[VF] = (machine->registers[x] < oldValue) ? 1 : 0;
+                    break;
+                case 0x5: // VX = VX - VY with carry
+                    carry = (machine->registers[x] >= machine->registers[y]);
+                    machine->registers[x] -= machine->registers[y];
+                    machine->registers[VF] = carry;
+                    break;
+                case 0x6: // VX >> 1 with carry
+                    carry = machine->registers[x] & 0x1;
+                    machine->registers[x] >>= 1;
+                    machine->registers[VF] = carry;
+                    break;
+                case 0x7: // VX = VY - VX with carry
+                    carry = (machine->registers[y] >= machine->registers[x]);
+                    machine->registers[x] = machine->registers[y] - machine->registers[x];
+                    machine->registers[VF] = carry;
+                    break;
+                case 0xE: // VX << 1 with carry
+                    carry = (machine->registers[x] & 0x80) >> 7;
+                    machine->registers[x] <<= 1;
+                    machine->registers[VF] = carry;
+                    break;
+                default:
+                    break;
+            }
+            break;
         case 0x9: // Skip if VX != VY
             if (machine->registers[x] != machine->registers[y])
             {
@@ -230,8 +276,46 @@ void DecodeExecute (MachineState *machine, Uint16 opcode)
         case 0xB: // Jump to NNN + V0
             machine->PC = nnn + machine->registers[V0];
             break;
+        case 0xC: // Generate random number
+            rnd = SDL_rand(UINT8_MAX);
+            machine->registers[x] = ((Uint8)rnd) & nn;
+            break;
         case 0xD: // Draw on screen
             OP_DXYN(machine, x, y, n);
+            break;
+        case 0xF:
+            switch (nn)
+            {
+                case 0x07: // Set VX to the value of delay timer
+                    machine->registers[x] = machine->delayTimer;
+                    break;
+                case 0x0A:
+                    break;
+                case 0x15: // Set delay timer to VX
+                    machine->delayTimer = machine->registers[x];
+                    break;
+                case 0x18: // Set sound timer to VX
+                    machine->soundTimer = machine->registers[x];
+                    break;
+                case 0x1E: // I = VX + I, no carry
+                    machine->I += machine->registers[x];
+                    break;
+                case 0x29: // Set the I to address of font character in the lowest nibble of VX
+                    // Take the index of the character from the lowest nibble and multiply by 5
+                    // because each character is represented by 5 bytes in memory
+                    machine->I = FONT_START_ADDR + (5 * (machine->registers[x] & 0xF));
+                    break;
+                case 0x33:
+                    break;
+                case 0x55: // Reg dump
+                    SDL_memcpy(&machine->memory[machine->I], machine->registers, (x + 1));
+                    break;
+                case 0x65: // Reg load
+                    SDL_memcpy(machine->registers, &machine->memory[machine->I], (x + 1));
+                    break;
+                default:
+                    break;
+            }
             break;
         default:
             break;
@@ -271,14 +355,20 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
     // To enable scaling of the window while keeping the desired resolution
     SDL_SetRenderLogicalPresentation(state->renderer, SDL_WINDOW_WIDTH, SDL_WINDOW_HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX);
 
+    // Initialize the random seed
+    Uint64 seed;
+    SDL_srand(seed);
+
     // Initialize the emulator
     MachineInit(&state->machineState);
 
     // TODO: Move to function?
     // TODO: Get filename from the arguments
     // char romName[] = "/home/jacob/Code/not-a-good-chip-8-emulator/chip8-test-suite/bin/2-ibm-logo.ch8";
+    // char *romName = "1-chip8-logo.ch8";
     // char *romName = "2-ibm-logo.ch8";
-    char *romName = "1-chip8-logo.ch8";
+    // char *romName = "3-corax+.ch8";
+    char *romName = "4-flags.ch8";
     char *romDir = ROM_DIRECTORY;
     size_t pathSize = SDL_strlen(romName) + SDL_strlen(romDir) + 1; // +1 for NULL terminator
     char path[pathSize];
@@ -323,6 +413,7 @@ SDL_AppResult SDL_AppIterate(void *appsate)
     // several times.
     while ((now - state->lastTick) >= CPU_CLOCK_IN_MHZ)
     {
+        // TODO: Timers
         Uint16 opCode = FetchInstruction(machine);
         DecodeExecute(machine, opCode);
         state->lastTick += CPU_CLOCK_IN_MHZ; // To run it multiple times we're reaally behind
