@@ -38,7 +38,7 @@
 
 #define ROM_DIRECTORY "./ROMS/"
 
-
+#define KEY_NOT_PRESSED UINT8_MAX
 
 // ************************************************************
 // Enums
@@ -83,6 +83,7 @@ typedef struct
     Uint8 registers[NUM_REGS];
     Uint8 memory [MEMORY_SIZE];
     Uint8 screen[SCREEN_MATRIX_SIZE];
+    Uint8 keyPressed; // Value from 0-8 of the pressed key
 } MachineState;
 
 typedef struct 
