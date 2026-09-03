@@ -15,7 +15,7 @@
 #define CPU_CLOCK_IN_MHZ 1
 #define CPU_CLOCK_IN_MS ((1 / (CPU_CLOCK_IN_MHZ * 1000000))) * 1000 // TODO: Could be reworked to be better
 
-#define SCREEN_REFRESH_RATE_IN_MS 16.6667f // 60Hz ((1/60) * 1000)
+#define DELAY_REFRESH_RATE_IN_MS 16.6667f // 60Hz ((1/60) * 1000)
 #define PIXEL_SIZE 24 // Size of the individual pixels of the chip-8 screen
 #define SCREEN_WIDTH_IN_PX  64
 #define SCREEN_HEIGHT_IN_PX 32
@@ -38,7 +38,15 @@
 
 #define ROM_DIRECTORY "./ROMS/"
 
-#define KEY_NOT_PRESSED UINT8_MAX
+#define KEY_NOT_PRESSED 0
+#define KEY_PRESSED UINT8_MAX
+#define KEYPAD_SIZE 16
+
+#define SAMPLE_RATE 44100
+#define TONE_FREQUENCY 440.0f
+// To keep roughly 100ms of audio buffered
+#define SEC_BUFFERED 0.1f
+#define MIN_QUEUED_BYTES ((Uint64)(SAMPLE_RATE * sizeof(float) * SEC_BUFFERED))
 
 // ************************************************************
 // Enums
@@ -83,15 +91,25 @@ typedef struct
     Uint8 registers[NUM_REGS];
     Uint8 memory [MEMORY_SIZE];
     Uint8 screen[SCREEN_MATRIX_SIZE];
-    Uint8 keyPressed; // Value from 0-8 of the pressed key
+    Uint8 keypad[KEYPAD_SIZE];
 } MachineState;
+
+typedef struct
+{
+    bool running;
+    SDL_AudioStream *stream;
+    Uint64 phaseIndex; // Phase index for generating more audio
+} AudioState;
 
 typedef struct 
 {
     SDL_Window *window;
     SDL_Renderer *renderer;
+    AudioState audioState;
     MachineState machineState;
     Uint64 lastTick;
+    Uint64 lastTickDelay;
+    Uint64 lastTickSound;
 } AppState;
 
 // ************************************************************

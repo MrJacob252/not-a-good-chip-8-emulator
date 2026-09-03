@@ -20,7 +20,6 @@ void FontInit(MachineState *machine, Uint16 startAddr, Uint16 length, const Uint
 void MachineInit(MachineState *machine)
 {
     SDL_zerop(machine);
-    machine->keyPressed = KEY_NOT_PRESSED;
     machine->PC = ROM_START;
     FontInit(machine, FONT_START_ADDR, sizeof(font), font);
 }
@@ -122,6 +121,67 @@ void OP_DXYN(MachineState *machine, Uint16 x, Uint16 y, Uint16 n)
     }
     return;
 }
+
+// void OP_FX0A(MachineState *machine, Uint16 x)
+// {
+//     Uint16 k;
+//     bool keyPressed = false;
+
+//     for (k = 0; k < KEYPAD_SIZE; k++)
+//     {
+//         if (machine->keypad[k] == KEY_PRESSED)
+//         {
+//             machine->registers[x] = k;
+//             keyPressed = true;
+//             break;
+//         }
+//     }
+
+//     if (!keyPressed)
+//     {
+//         machine->PC -= 2;
+//     }
+
+//     return;
+// }
+
+void OP_FX0A(MachineState *machine, Uint16 x)
+{
+    Uint16 k;
+    static Uint8 keyPressedIndex = UINT8_MAX;
+    bool keyPressed = false;
+
+    // Wait for key to be pressed
+    if (keyPressedIndex == UINT8_MAX)
+    {
+        for (k = 0; k < KEYPAD_SIZE; k++)
+        {
+            if (machine->keypad[k] == KEY_PRESSED)
+            {
+                keyPressedIndex = k;
+                break;
+            }
+        }
+    }
+
+    // Wait for the pressed key to be released
+    if (keyPressedIndex != UINT8_MAX)
+    {
+        if (machine->keypad[keyPressedIndex] == KEY_NOT_PRESSED)
+        {
+            machine->registers[x] = (keyPressedIndex & 0xF);
+            keyPressedIndex = UINT8_MAX;
+            keyPressed = true;
+        }
+    }
+
+    if (!keyPressed)
+    {
+        machine->PC -= 2;
+    }
+
+    return;
+}
 /*
 - [ ] [ ] 0NNN -> Skip
 - [x] [ ] 00E0
@@ -163,7 +223,7 @@ void OP_DXYN(MachineState *machine, Uint16 x, Uint16 y, Uint16 n)
 void DecodeExecute (MachineState *machine, Uint16 opcode)
 {
     Uint16 nibble, nnn, nn, n, x, y;
-    Uint8 value, oldValue, carry;
+    Uint8 value, oldValue, carry, key;
     Sint32 rnd;
     nibble = (opcode & 0xF000U) >> 12U;
     nnn = (opcode & 0x0FFFU);
@@ -287,13 +347,15 @@ void DecodeExecute (MachineState *machine, Uint16 opcode)
             switch (nn)
             {
                 case 0x9E: // Skip if pressed
-                    if (machine->keyPressed == (machine->registers[x] & 0xFU))
+                    key = (machine->registers[x] & 0xFU);
+                    if (machine->keypad[key] == KEY_PRESSED)
                     {
                         machine->PC += 2;
                     }
                     break;
                 case 0xA1: // Skip if not pressed
-                    if (machine->keyPressed != (machine->registers[x] & 0xFU))
+                    key = (machine->registers[x] & 0xFU);
+                    if (machine->keypad[key] == KEY_NOT_PRESSED)
                     {
                         machine->PC += 2;
                     }
@@ -307,16 +369,7 @@ void DecodeExecute (MachineState *machine, Uint16 opcode)
                     machine->registers[x] = machine->delayTimer;
                     break;
                 case 0x0A: 
-                    // Block program execution unless key is pressed
-                    // Timers should keep processing
-                    if (machine->keyPressed == KEY_NOT_PRESSED)
-                    {
-                        machine->PC -= 2; // Halt the exection (this instruction will repeat)
-                    }
-                    else
-                    {
-                        machine->registers[x] = machine->keyPressed;
-                    }
+                        OP_FX0A(machine, x);
                     break;
                 case 0x15: // Set delay timer to VX
                     machine->delayTimer = machine->registers[x];
@@ -351,9 +404,10 @@ void DecodeExecute (MachineState *machine, Uint16 opcode)
         default:
             break;
     }
+    return;
 }
 
-SDL_AppResult handle_key_event(MachineState *machine, SDL_Scancode key_code)
+SDL_AppResult HandleKeyEventDown(MachineState *machine, SDL_Scancode keyCode, SDL_EventType eventType)
 {
     SDL_AppResult result = SDL_APP_CONTINUE;
 
@@ -366,7 +420,17 @@ SDL_AppResult handle_key_event(MachineState *machine, SDL_Scancode key_code)
     | A = Z | 0 = X | B = C | F = V |
     */
 
-    switch (key_code)
+    Uint8 keyValue;
+    if (eventType == SDL_EVENT_KEY_DOWN)
+    {
+        keyValue = KEY_PRESSED;
+    }
+    else
+    {
+        keyValue = KEY_NOT_PRESSED;
+    }
+    
+    switch (keyCode)
     {
         // Quit
         case SDL_SCANCODE_ESCAPE:
@@ -374,58 +438,77 @@ SDL_AppResult handle_key_event(MachineState *machine, SDL_Scancode key_code)
             break; 
         // Handle the keyboard input
         case SDL_SCANCODE_1:
-            machine->keyPressed = 0x1U;
+            machine->keypad[0x1U] = keyValue;
             break;
         case SDL_SCANCODE_2:
-            machine->keyPressed = 0x2U;
+            machine->keypad[0x2U] = keyValue;
             break;
         case SDL_SCANCODE_3:
-            machine->keyPressed = 0x3U;
+            machine->keypad[0x3U] = keyValue;
             break;
         case SDL_SCANCODE_4:
-            machine->keyPressed = 0xCU;
+            machine->keypad[0xCU] = keyValue;
             break;
         case SDL_SCANCODE_Q:
-            machine->keyPressed = 0x4U;
+            machine->keypad[0x4U] = keyValue;
             break;
         case SDL_SCANCODE_W:
-            machine->keyPressed = 0x5U;
+            machine->keypad[0x5U] = keyValue;
             break;
         case SDL_SCANCODE_E:
-            machine->keyPressed = 0x6U;
+            machine->keypad[0x6U] = keyValue;
             break;
         case SDL_SCANCODE_R:
-            machine->keyPressed = 0xDU;
+            machine->keypad[0xDU] = keyValue;
             break;
         case SDL_SCANCODE_A:
-            machine->keyPressed = 0x7U;
+            machine->keypad[0x7U] = keyValue;
             break;
         case SDL_SCANCODE_S:
-            machine->keyPressed = 0x8U;
+            machine->keypad[0x8U] = keyValue;
             break;
         case SDL_SCANCODE_D:
-            machine->keyPressed = 0x9U;
+            machine->keypad[0x9U] = keyValue;
             break;
         case SDL_SCANCODE_F:
-            machine->keyPressed = 0xEU;
+            machine->keypad[0xEU] = keyValue;
             break;
         case SDL_SCANCODE_Z:
-            machine->keyPressed = 0xAU;
+            machine->keypad[0xAU] = keyValue;
             break;
         case SDL_SCANCODE_X:
-            machine->keyPressed = 0x0U;
+            machine->keypad[0x0U] = keyValue;
             break;
         case SDL_SCANCODE_C:
-            machine->keyPressed = 0xBU;
+            machine->keypad[0xBU] = keyValue;
             break;
         case SDL_SCANCODE_V:
-            machine->keyPressed = 0xFU;
+            machine->keypad[0xFU] = keyValue;
             break;
         default:
             break;
     }
 
     return result;
+}
+
+void GenerateMoreAudio(AudioState *audioState)
+{
+    Uint32 n_samples = 256;
+    Uint32 i;
+    float samples[n_samples];
+    float time;
+    for (i = 0; i < n_samples; i++)
+    {
+        time = (float)audioState->phaseIndex / SAMPLE_RATE;
+        samples[i] = SDL_sinf(2.0f * SDL_PI_F * TONE_FREQUENCY * time);
+        audioState->phaseIndex++;
+    }
+    
+    // Push samples to the queue
+    SDL_PutAudioStreamData(audioState->stream, samples, sizeof(samples));
+
+    return;
 }
 
 // ************************************************************
@@ -461,6 +544,27 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
     // To enable scaling of the window while keeping the desired resolution
     SDL_SetRenderLogicalPresentation(state->renderer, SDL_WINDOW_WIDTH, SDL_WINDOW_HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX);
 
+    // Initialize the audio
+    SDL_AudioSpec audioSpec = {
+        .format = SDL_AUDIO_F32,
+        .channels = 1, // Mono
+        .freq = SAMPLE_RATE,
+    };
+
+    state->audioState.stream = SDL_OpenAudioDeviceStream(
+        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+        &audioSpec,
+        NULL,
+        NULL
+    );
+
+    if ((!state->audioState.stream) && result == SDL_APP_CONTINUE)
+    {
+        SDL_Log("Couldn't initialize SDL audio stream: %s\n", SDL_GetError());
+        result = SDL_APP_FAILURE;
+    }
+
+
     // Initialize the random seed
     Uint64 seed;
     SDL_srand(seed);
@@ -474,7 +578,11 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
     // char *romName = "1-chip8-logo.ch8";
     // char *romName = "2-ibm-logo.ch8";
     // char *romName = "3-corax+.ch8";
-    char *romName = "4-flags.ch8";
+    // char *romName = "4-flags.ch8";
+    // char *romName = "5-quirks.ch8";
+    char *romName = "6-keypad.ch8";
+    // char *romName = "7-beep.ch8";
+    // char *romName = "8-scrolling.ch8";
     // char *romName = "K-test.ch8";
     char *romDir = ROM_DIRECTORY;
     size_t pathSize = SDL_strlen(romName) + SDL_strlen(romDir) + 1; // +1 for NULL terminator
@@ -513,19 +621,48 @@ SDL_AppResult SDL_AppIterate(void *appsate)
 
     AppState *state = (AppState *)appsate;
     MachineState *machine = &state->machineState;
+    AudioState *audioState = &state->audioState;
     const Uint64 now = SDL_GetTicks();
     
     // run game logic if we're at or past the time to run it.
     // if we're _really_ behind the time to run it, run it
     // several times.
-    while ((now - state->lastTick) >= CPU_CLOCK_IN_MHZ)
+    // while ((now - state->lastTick) >= CPU_CLOCK_IN_MS)
+    if ((now - state->lastTick) >= CPU_CLOCK_IN_MS)
     {
-        // TODO: Timers
         Uint16 opCode = FetchInstruction(machine);
         SDL_Log("%x\n", opCode);
         DecodeExecute(machine, opCode);
-        state->lastTick += CPU_CLOCK_IN_MHZ; // To run it multiple times we're reaally behind
-        RefreshScreen(state); // TODO: Should be capped at 60Hz I think
+        
+        // Timers (TODO: Update at the 60Hz rate or not?)
+        if ((machine->delayTimer > 0) && ((now - state->lastTickDelay) >= DELAY_REFRESH_RATE_IN_MS))
+        {
+            machine->delayTimer--;
+        }
+        if ((machine->soundTimer > 0) && ((now - state->lastTickDelay) >= DELAY_REFRESH_RATE_IN_MS))
+        {
+            machine->soundTimer--;
+            
+            // Add more samples to the queue
+            if (SDL_GetAudioStreamQueued(audioState->stream) < MIN_QUEUED_BYTES)
+            {
+                GenerateMoreAudio(audioState);
+            }
+            if (!audioState->running)
+            {
+                // Unpause the audio to begin playing
+                SDL_ResumeAudioStreamDevice(audioState->stream);
+                audioState->running = true;
+            }
+        }
+        else
+        {
+            SDL_ClearAudioStream(audioState->stream);
+            audioState->running = false;
+        }
+        
+        // state->lastTick += CPU_CLOCK_IN_MS; // To run it multiple times we're reaally behind
+        RefreshScreen(state);
     }
 
 
@@ -544,16 +681,14 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
             result = SDL_APP_SUCCESS;
             break;
         case SDL_EVENT_KEY_DOWN:
-            result = handle_key_event(machine, event->key.scancode);
-            break;
         case SDL_EVENT_KEY_UP:
-            machine->keyPressed = KEY_NOT_PRESSED;
+            result = HandleKeyEventDown(machine, event->key.scancode, event->key.type);
             break;
         default:
             break;
     }
     //SDL_Log("Scancode: %d\n", event->key.scancode);
-    //SDL_Log("Key pressed: %d\n", machine->keyPressed);
+    //SDL_Log("Key pressed: %d\n", machine->keypad);
     return result;
 }
 
@@ -565,6 +700,7 @@ void SDL_AppQuit(void *appsate, SDL_AppResult result)
         AppState *state = (AppState *)appsate;
         SDL_DestroyRenderer(state->renderer);
         SDL_DestroyWindow(state->window);
+        SDL_DestroyAudioStream(state->audioState.stream);
         SDL_free(state);
     }
 }
