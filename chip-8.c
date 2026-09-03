@@ -122,29 +122,6 @@ void OP_DXYN(MachineState *machine, Uint16 x, Uint16 y, Uint16 n)
     return;
 }
 
-// void OP_FX0A(MachineState *machine, Uint16 x)
-// {
-//     Uint16 k;
-//     bool keyPressed = false;
-
-//     for (k = 0; k < KEYPAD_SIZE; k++)
-//     {
-//         if (machine->keypad[k] == KEY_PRESSED)
-//         {
-//             machine->registers[x] = k;
-//             keyPressed = true;
-//             break;
-//         }
-//     }
-
-//     if (!keyPressed)
-//     {
-//         machine->PC -= 2;
-//     }
-
-//     return;
-// }
-
 void OP_FX0A(MachineState *machine, Uint16 x)
 {
     Uint16 k;
@@ -181,6 +158,51 @@ void OP_FX0A(MachineState *machine, Uint16 x)
     }
 
     return;
+}
+
+SDL_AppResult LoadROM (MachineState *machine, int argc, char **argv)
+{
+    char *romName;
+    char *romDir = ROM_DIRECTORY;
+    size_t pathSize, fileBufferSize;
+    Uint8 *fileBuffer;
+    
+    SDL_AppResult result = SDL_APP_CONTINUE;
+
+    if (argc != 2)
+    {
+        // -1 becaue there will be alway 1 argument (the program path)
+        SDL_Log("Exactly one command line argument should be give!\nCurrent value: %d\n", (argc - 1));
+        result = SDL_APP_FAILURE;
+    }
+
+    if (result == SDL_APP_CONTINUE)
+    {
+        romName = argv[1];
+
+        size_t pathSize = SDL_strlen(romName) + SDL_strlen(romDir) + 1; // +1 for NULL terminator
+        char path[pathSize];
+        SDL_zeroa(path);
+        // Combine the paths
+        SDL_strlcat(path, romDir, pathSize); // Add dir to the path
+        pathSize = SDL_strlcat(path, romName, pathSize); // Add ROM name to the path
+
+        fileBuffer = SDL_LoadFile(path, &fileBufferSize);
+        if (!fileBuffer)
+        {
+            SDL_Log("Failed to load ROM file: %s", SDL_GetError());
+            result = SDL_APP_FAILURE;
+        }
+        else
+        {
+            // Load the ROM into memory
+            SDL_memcpy(&machine->memory[ROM_START], fileBuffer, fileBufferSize);
+        }
+
+        SDL_free(fileBuffer);
+    }
+
+    return result;
 }
 /*
 - [ ] [ ] 0NNN -> Skip
@@ -564,53 +586,23 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
         result = SDL_APP_FAILURE;
     }
 
-
-    // Initialize the random seed
-    Uint64 seed;
-    SDL_srand(seed);
-
-    // Initialize the emulator
-    MachineInit(&state->machineState);
-
-    // TODO: Move to function?
-    // TODO: Get filename from the arguments
-    // char romName[] = "/home/jacob/Code/not-a-good-chip-8-emulator/chip8-test-suite/bin/2-ibm-logo.ch8";
-    // char *romName = "1-chip8-logo.ch8";
-    // char *romName = "2-ibm-logo.ch8";
-    // char *romName = "3-corax+.ch8";
-    // char *romName = "4-flags.ch8";
-    // char *romName = "5-quirks.ch8";
-    char *romName = "6-keypad.ch8";
-    // char *romName = "7-beep.ch8";
-    // char *romName = "8-scrolling.ch8";
-    // char *romName = "K-test.ch8";
-    char *romDir = ROM_DIRECTORY;
-    size_t pathSize = SDL_strlen(romName) + SDL_strlen(romDir) + 1; // +1 for NULL terminator
-    char path[pathSize];
-    SDL_zeroa(path);
-    SDL_strlcat(path, romDir, pathSize);
-    pathSize = SDL_strlcat(path, romName, pathSize);
-    // SDL_Log("%s\n", path);
-    // SDL_Log("%d\n", pathSize);
-    
-    // Load File using SDL
-    // TODO: Maybe check that the ROM fits into the memory
-    size_t fileBufferSize;
-    Uint8 *fileBuffer = (Uint8 *)SDL_LoadFile(path, &fileBufferSize);
-    if (!fileBuffer && (result == SDL_APP_CONTINUE))
+    if (result == SDL_APP_CONTINUE)
     {
-        SDL_Log("Failed to load ROM file: %s", SDL_GetError());
-        result = SDL_APP_FAILURE;
+        // Initialize the random seed
+        Uint64 seed;
+        SDL_srand(seed);
+        
+        // Initialize the emulator
+        MachineInit(&state->machineState);
     }
-    else // Load the ROM into the memory
-    {
-        SDL_memcpy(&state->machineState.memory[ROM_START], fileBuffer, fileBufferSize);
-    }
-    // Clear the file buffer
-    SDL_free(fileBuffer);
+
+    result = LoadROM(&state->machineState, argc, argv);
 
     // Tics
-    state->lastTick = SDL_GetTicks();
+    if (result == SDL_APP_CONTINUE)
+    {
+        state->lastTick = SDL_GetTicks();
+    }
 
     return result;
 }
@@ -631,10 +623,10 @@ SDL_AppResult SDL_AppIterate(void *appsate)
     if ((now - state->lastTick) >= CPU_CLOCK_IN_MS)
     {
         Uint16 opCode = FetchInstruction(machine);
-        SDL_Log("%x\n", opCode);
         DecodeExecute(machine, opCode);
         
         // Timers (TODO: Update at the 60Hz rate or not?)
+        // -- Hopefully this does it??
         if ((machine->delayTimer > 0) && ((now - state->lastTickDelay) >= DELAY_REFRESH_RATE_IN_MS))
         {
             machine->delayTimer--;
@@ -665,7 +657,6 @@ SDL_AppResult SDL_AppIterate(void *appsate)
         RefreshScreen(state);
     }
 
-
     return result;
 }
 
@@ -687,8 +678,6 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
         default:
             break;
     }
-    //SDL_Log("Scancode: %d\n", event->key.scancode);
-    //SDL_Log("Key pressed: %d\n", machine->keypad);
     return result;
 }
 
